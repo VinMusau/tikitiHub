@@ -6,7 +6,6 @@ import Input from '../components/common/Input';
 
 export const Register: React.FC = () => {
   const navigate = useNavigate();
-
   const register = useAuthStore((state) => state.register);
 
   const [formData, setFormData] = useState({
@@ -20,6 +19,16 @@ export const Register: React.FC = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const requirements = [
+    { label: 'Minimum 8 characters long', value: formData.password.length >= 8 },
+    { label: 'At least one uppercase letter (A-Z)', value: /[A-Z]/.test(formData.password) },
+    { label: 'At least one lowercase letter (a-z)', value: /[a-z]/.test(formData.password) },
+    { label: 'At least one digit (0-9)', value: /[0-9]/.test(formData.password) },
+    { label: 'At least one special character (@$!%*?&)', value: /[@$!%*?&]/.test(formData.password) },
+  ];
+
+  const isPasswordSecure = requirements.every((req) => req.value);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({
       ...formData,
@@ -29,12 +38,19 @@ export const Register: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isPasswordSecure) return; // Safeguard submission block
+
     setError(null);
     setSuccess(null);
     setLoading(true);
 
     try {
-      await register({fullName: formData.fullName, email: formData.email, password: formData.password, role: formData.role});
+      await register({
+        fullName: formData.fullName, 
+        email: formData.email, 
+        password: formData.password, 
+        role: formData.role
+      });
 
       setSuccess('Profile initialized successfully! Redirecting...');
 
@@ -55,7 +71,6 @@ export const Register: React.FC = () => {
         <div className="absolute -inset-2 bg-gradient-to-r from-purple-500 to-blue-500 rounded-3xl blur-xl opacity-20"></div>
         
         <div className="relative bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl overflow-hidden border border-gray-100">
-
           <div className="p-8 sm:p-10">
             <div className="text-center mb-8">
               <div className="inline-block bg-gradient-to-r from-blue-600 to-purple-600 text-transparent bg-clip-text">
@@ -86,9 +101,7 @@ export const Register: React.FC = () => {
                     Full Name
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm select-none">
-                      👤
-                    </span>
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm select-none">👤</span>
                     <Input
                       type="text"
                       id="fullName"
@@ -107,9 +120,7 @@ export const Register: React.FC = () => {
                     Email Address
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm select-none">
-                      ✉
-                    </span>
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm select-none">✉</span>
                     <Input
                       type="email"
                       id="email"
@@ -124,15 +135,14 @@ export const Register: React.FC = () => {
                 </div>
               </div>
 
+              {/* Layout Adjustments to hold full-width password block next to checklist */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="password" className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
                     Password 
                   </label>
                   <div className="relative">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm select-none">
-                      🔒
-                    </span>
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm select-none">🔒</span>
                     <Input
                       type="password"
                       id="password"
@@ -145,14 +155,35 @@ export const Register: React.FC = () => {
                     />
                   </div>
                 </div>
+
+                {/* 🛠️ Statically integrated UX validation container inside the layout track */}
+                <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-1.5 self-end">
+                  <span className="block text-[9px] font-extrabold tracking-wider text-slate-400 uppercase mb-1">
+                    Security Metric Baseline
+                  </span>
+                  {requirements.map((req, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[11px] font-medium">
+                      <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center border text-[9px] font-bold shrink-0 ${
+                        req.value 
+                          ? 'bg-emerald-100 text-emerald-700 border-emerald-200' 
+                          : 'bg-white text-slate-300 border-slate-200'
+                      }`}>
+                        {req.value ? '✓' : '•'}
+                      </span>
+                      <span className={req.value ? 'text-slate-400 line-through decoration-slate-200' : 'text-slate-600'}>
+                        {req.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <Button
                 type="submit"
                 variant="primary"
                 fullWidth
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-purple-600/20 transition-all duration-150 transform active:scale-[0.99] mt-2"
-                disabled={loading}
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg shadow-purple-600/20 transition-all duration-150 transform active:scale-[0.99] mt-2 disabled:opacity-40 disabled:pointer-events-none"
+                disabled={loading || !isPasswordSecure}
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
@@ -176,7 +207,6 @@ export const Register: React.FC = () => {
               </p>
             </div>
           </div>
-          
         </div>
       </div>
     </div>

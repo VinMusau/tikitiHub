@@ -29,4 +29,7 @@ public class User {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private UserRole role = UserRole.ROLE_CUSTOMER;  //Default role
+
+    private boolean enabled = false;
+    private String verificationToken;
 }

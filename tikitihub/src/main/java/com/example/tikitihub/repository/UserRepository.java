@@ -7,6 +7,6 @@ import java.util.Optional;
 
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
-    // This allows us to quickly look up users by email later during login
     Optional<User> findByEmail(String email);
+    Optional<User> findByVerificationToken(String verificationToken);
 }
