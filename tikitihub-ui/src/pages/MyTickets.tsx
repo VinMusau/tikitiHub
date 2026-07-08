@@ -160,7 +160,7 @@ export default function MyTickets() {
                       </div>
                       <div className="text-right shrink-0">
                         <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">Price Tier</span>
-                        <span className="text-sm font-black text-slate-900">${targetTicket.price || '0'} ea</span>
+                        <span className="text-sm font-black text-slate-900">Kes {targetTicket.price || '0'} /=</span>
                       </div>
                     </div>
 

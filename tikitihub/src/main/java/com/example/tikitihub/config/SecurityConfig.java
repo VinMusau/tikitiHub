@@ -46,6 +46,7 @@ public class SecurityConfig {
                     .requestMatchers("/api/auth/**", "/api/events/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/tickets/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/bookings/**").permitAll()
+                    .requestMatchers("/api/payments/mpesa-callback").permitAll()
                     .requestMatchers(HttpMethod.POST, "/api/bookings/**").hasAnyAuthority("ROLE_USER", "ROLE_CUSTOMER", "ROLE_AGENT", "ROLE_ADMIN", "USER", "AGENT", "ADMIN")
                     .requestMatchers(HttpMethod.POST, "/api/tickets/**").hasAnyAuthority("ROLE_AGENT", "ROLE_ADMIN")
                     .anyRequest().authenticated()

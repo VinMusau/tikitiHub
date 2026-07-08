@@ -23,6 +23,10 @@ export default function Login() {
       
       const freshUser = useAuthStore.getState().user;
 
+      if (!freshUser) {
+        return;
+      }
+
       if (freshUser?.role === 'ROLE_AGENT' || freshUser?.role === 'AGENT') {
         navigate('/organizer/dashboard');
       } else {
@@ -59,7 +63,7 @@ export default function Login() {
             {/* Error Message */}
             {error && (
               <div className="mb-5 p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs flex items-center justify-center gap-2 font-medium">
-                <span>⚠️</span> {error}
+                <span></span> {error}
               </div>
             )}
 

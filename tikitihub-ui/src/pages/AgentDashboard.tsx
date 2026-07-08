@@ -161,7 +161,7 @@ export default function AgentDashboard() {
                 <input required type="datetime-local" value={formData.eventDate} onChange={e => setFormData({...formData, eventDate: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm text-slate-600 focus:border-purple-500 focus:outline-none" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Single Admission Tariff ($) *</label>
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Single Admission Tariff (KES ) *</label>
                 <input required type="number" step="0.01" placeholder="25.00" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:border-purple-500 focus:outline-none" />
               </div>
               <div className="md:col-span-2">
@@ -192,7 +192,7 @@ export default function AgentDashboard() {
                 <span className="text-[10px] uppercase font-bold tracking-wider">Gross Revenue</span>
                 <DollarSign className="w-4 h-4 text-purple-500" />
               </div>
-              <span className="text-xl sm:text-2xl font-black text-slate-900">${totalRevenue.toFixed(2)}</span>
+              <span className="text-xl sm:text-2xl font-black text-slate-900">Kes {totalRevenue.toFixed(2)}</span>
             </div>
             <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-2xs">
               <div className="flex justify-between items-center text-slate-400 mb-2">
@@ -272,7 +272,7 @@ export default function AgentDashboard() {
                     </div>
 
                     <div className="bg-slate-50/80 border-t border-slate-100 p-4 flex items-center justify-between">
-                      <span className="text-sm font-black text-slate-900">${event.price} <span className="text-[10px] font-normal text-slate-400">/ pass</span></span>
+                      <span className="text-sm font-black text-slate-900">Kes {event.price} <span className="text-[10px] font-normal text-slate-400">/ pass</span></span>
                     </div>
                   </div>
                 );

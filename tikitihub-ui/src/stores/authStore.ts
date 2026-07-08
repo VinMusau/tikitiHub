@@ -41,8 +41,9 @@ export const useAuthStore = create<AuthState>()(
             set({ error: 'Invalid response format from server', loading: false });
           }
         } catch (error: any) {
-          const errorMessage = error.response?.data?.message || 'Invalid email or password. Please try again.';
+          const errorMessage = error.response?.data?.error || 'Invalid email or password. Please try again.';
           set({ error: errorMessage, loading: false });
+          throw new Error(errorMessage);
         }
       },
 

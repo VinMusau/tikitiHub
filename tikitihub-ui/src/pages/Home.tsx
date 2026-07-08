@@ -109,7 +109,7 @@ export default function Home() {
           <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 animate-fade-in space-y-2">
             <div className="flex justify-between text-xs font-bold text-slate-600">
               <span>Maximum Ticket Tariff</span>
-              <span className="text-indigo-600">${maxPrice} USD</span>
+              <span className="text-indigo-600">KES {maxPrice} KES</span>
             </div>
             <input 
               type="range" 
@@ -180,7 +180,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="p-4 flex items-center justify-between mt-auto bg-slate-50 border-t border-slate-100">
-                  <span className="text-xs font-bold text-slate-900">Admission from <strong className="text-indigo-600">${evt.price}</strong></span>
+                  <span className="text-xs font-bold text-slate-900">Admission from <strong className="text-indigo-600">Kes {evt.price}</strong></span>
                   <span className="text-[10px] text-indigo-600 font-bold flex items-center gap-0.5">
                     Get Passes <ArrowRight className="w-3 h-3" />
                   </span>
@@ -237,7 +237,7 @@ export default function Home() {
                       </div>
                     )}
                     <div className="absolute top-3 right-3 text-[10px] font-bold bg-white/90 backdrop-blur-xs px-2 py-0.5 rounded shadow-2xs text-slate-700">
-                      ${event.price}
+                      Kes {event.price}
                     </div>
                   </div>
 

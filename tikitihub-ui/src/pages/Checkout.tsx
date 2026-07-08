@@ -1,24 +1,49 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCartStore } from '../stores/cartStore';
 import { useAuthStore } from '../stores/authStore';
+import { useBookingStore } from '../stores/useBookingStore';
 import Button from '../components/common/Button';
 import Input from '../components/common/Input';
 import Card from '../components/common/Card';
-import { ShieldCheck, CreditCard, ShoppingBag, ArrowLeft, AlertCircle } from 'lucide-react';
+import { ShieldCheck, CreditCard, ShoppingBag, ArrowLeft, AlertCircle, Phone } from 'lucide-react';
+import { usePaymentStore } from '../stores/paymentStore';
 
 export default function Checkout() {
   const navigate = useNavigate();
   const { items, totalPrice } = useCartStore();
-  const checkoutAction = useCartStore((state) => state.checkout);
+  const clearCart = useCartStore((state) => state.clearCart);
   const { isAuthenticated } = useAuthStore();
   
-  const [loading, setLoading] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState('credit');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { loading, error, successMessage, initiateMpesaPush, checkoutRequestId } = usePaymentStore();
+  const { fetchUserBookings, bookings } = useBookingStore();
+  
+  const [paymentMethod, setPaymentMethod] = useState('mpesa');
+  const [mpesaPhone, setMpesaPhone] = useState('');
 
   const processingFee = totalPrice * 0.05;
   const finalTotal = totalPrice + processingFee;
+
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout;
+
+    if (successMessage && checkoutRequestId) {
+      intervalId = setInterval(() => {
+        fetchUserBookings();
+      }, 2500);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [successMessage, checkoutRequestId]);
+
+  useEffect(() => {
+    if (successMessage && bookings.length > 0) {
+      usePaymentStore.getState().clearPaymentState();
+      navigate('/my-tickets');
+    }
+  }, [bookings, successMessage]);
 
   if (!isAuthenticated) {
     return (
@@ -45,7 +70,7 @@ export default function Checkout() {
         </div>
         <h2 className="text-xl font-black text-slate-900 tracking-tight mb-2">Your Cart is Empty</h2>
         <p className="text-xs text-slate-400 mb-6 leading-relaxed">
-          There are no reserved event passes pending checkout in your session at this moment.
+          There are no reserved event passes pending checkout at this moment.
         </p>
         <Button onClick={() => navigate('/')} className="w-full bg-indigo-600 text-white font-bold text-xs py-2.5 rounded-xl shadow-xs">
           Browse Upcoming Events
@@ -54,18 +79,35 @@ export default function Checkout() {
     );
   }
 
+  const formatMpesaNumber = (rawPhone: string) => {
+    let clean = rawPhone.replace(/\D/g, '');
+    if (clean.startsWith('0')) clean = '254' + clean.substring(1);
+    else if (clean.startsWith('7') || clean.startsWith('1')) clean = '254' + clean;
+    return clean;
+  };
+
   const handleCheckout = async () => {
-    setLoading(true);
-    setErrorMessage(null);
-    try {
-      await checkoutAction();
+    const targetItem = items[0];
+
+    if (paymentMethod === 'mpesa') {
+      const formattedPhone = formatMpesaNumber(mpesaPhone);
       
-      navigate('/my-tickets');
-    } catch (error: any) {
-      console.error("Booking transaction failure:", error);
-      setErrorMessage(error.message || "Payment processing failed. Please check ticket inventory availability.");
-    } finally {
-      setLoading(false);
+      if (!/^254(7|1)\d{8}$/.test(formattedPhone)) {
+        usePaymentStore.setState({ error: "Please supply a valid Safaricom phone number (07XX... or 01XX...)" });
+        return;
+      }
+
+      const isTriggered = await initiateMpesaPush(
+        formattedPhone, 
+        finalTotal, 
+        targetItem.event.id, 
+        targetItem.quantity
+      );
+
+      if (isTriggered && clearCart) {
+        clearCart();
+      }
+    } else {
     }
   };
 
@@ -80,11 +122,17 @@ export default function Checkout() {
 
       <h1 className="text-2xl font-black text-slate-900 tracking-tight mb-8">Secure Checkout</h1>
 
-      {errorMessage && (
+      {error && (
         <div className="mb-6 bg-rose-50 border border-rose-100 rounded-2xl p-4 flex items-start gap-3">
           <AlertCircle className="w-4 h-4 text-rose-600 mt-0.5 shrink-0" />
-          <div className="text-xs font-semibold text-rose-700 leading-relaxed">
-            {errorMessage}
+          <div className="text-xs font-semibold text-rose-700 leading-relaxed">{error}</div>
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="mb-6 bg-emerald-50 border border-emerald-100 rounded-2xl p-4 flex items-start gap-3">
+          <div className="text-xs font-semibold text-emerald-700 leading-relaxed">
+            {successMessage}
           </div>
         </div>
       )}
@@ -92,17 +140,17 @@ export default function Checkout() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-start">
         <div className="md:col-span-2 space-y-6">
           
-          {/* Order Summary Summary Panel */}
+          {/* Order Summary Panel */}
           <Card className="p-6 bg-white border border-slate-200 rounded-2xl shadow-2xs">
             <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4">Pass Summary</h3>
             <div className="divide-y divide-slate-100">
               {items.map((item) => (
                 <div key={item.event.id} className="flex justify-between py-3 first:pt-0 last:pb-0 text-xs">
                   <div>
-                    <p className="font-bold text-slate-800">{item.event.title || item.event.eventName}</p>
+                    <p className="font-bold text-slate-800">{item.event.eventName}</p>
                     <p className="text-[10px] text-slate-400 font-semibold mt-0.5">Quantity: {item.quantity}</p>
                   </div>
-                  <p className="font-bold text-slate-900 font-mono">${(item.event.price * item.quantity).toFixed(2)}</p>
+                  <p className="font-bold text-slate-900 font-mono">KES {(item.event.price * item.quantity).toFixed(2)}</p>
                 </div>
               ))}
             </div>
@@ -123,20 +171,37 @@ export default function Checkout() {
                   onChange={(e) => setPaymentMethod(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                 >
+                  <option value="mpesa">Lipa Na M-Pesa Online (STK Push)</option>
                   <option value="credit">Credit Card (Simulation Gateway)</option>
-                  <option value="debit">Debit Card</option>
-                  <option value="paypal">PayPal Payment Proxy</option>
                 </select>
               </div>
 
-              <Input label="Card Number" placeholder="1234 5678 9012 3456" className="text-xs" />
-              
-              <div className="grid grid-cols-2 gap-4">
-                <Input label="Expiry Date" placeholder="MM/YY" className="text-xs" />
-                <Input label="CVV" placeholder="123" type="password" maxLength={4} className="text-xs" />
-              </div>
-
-              <Input label="Name on Card" placeholder="John Doe" className="text-xs" />
+              {paymentMethod === 'mpesa' ? (
+                <div className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl space-y-3">
+                  <div className="flex items-center gap-2 text-emerald-800 text-xs font-bold mb-1">
+                    <Phone className="w-4 h-4" /> M-Pesa Direct STK Push
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed mb-2">
+                    Enter your active Safaricom phone number below. A secure PIN prompt menu will be sent to your device.
+                  </p>
+                  <Input 
+                    label="M-Pesa Mobile Number" 
+                    placeholder="e.g. 0712345678" 
+                    value={mpesaPhone}
+                    onChange={(e) => setMpesaPhone(e.target.value)}
+                    className="text-xs font-mono tracking-wide" 
+                  />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <Input label="Card Number" placeholder="1234 5678 9012 3456" className="text-xs" />
+                  <div className="grid grid-cols-2 gap-4">
+                    <Input label="Expiry Date" placeholder="MM/YY" className="text-xs" />
+                    <Input label="CVV" placeholder="123" type="password" maxLength={4} className="text-xs" />
+                  </div>
+                  <Input label="Name on Card" placeholder="John Doe" className="text-xs" />
+                </div>
+              )}
             </div>
           </Card>
         </div>
@@ -149,17 +214,17 @@ export default function Checkout() {
             <div className="space-y-2.5 text-xs font-medium text-slate-500">
               <div className="flex justify-between">
                 <span>Subtotal</span>
-                <span className="font-bold text-slate-700 font-mono">${totalPrice.toFixed(2)}</span>
+                <span className="font-bold text-slate-700 font-mono">KES {totalPrice.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
                 <span>Platform Transaction Fees (5%)</span>
-                <span className="font-bold text-slate-700 font-mono">${processingFee.toFixed(2)}</span>
+                <span className="font-bold text-slate-700 font-mono">KES {processingFee.toFixed(2)}</span>
               </div>
               
               <div className="border-t border-slate-200 border-dashed pt-3 mt-3">
                 <div className="flex justify-between items-baseline">
                   <span className="text-slate-900 font-bold">Total Due</span>
-                  <span className="text-lg font-black text-slate-900 font-mono">${finalTotal.toFixed(2)}</span>
+                  <span className="text-lg font-black text-slate-900 font-mono">KES {Math.round(finalTotal).toLocaleString()}</span>
                 </div>
               </div>
             </div>
@@ -171,11 +236,11 @@ export default function Checkout() {
               className="mt-5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 rounded-xl shadow-xs transition-colors cursor-pointer"
               disabled={loading}
             >
-              {loading ? 'Processing Order...' : 'Authorize & Book Tickets'}
+              {loading ? 'Processing Order...' : paymentMethod === 'mpesa' ? 'Prompt M-Pesa STK Menu' : 'Authorize & Book Tickets'}
             </Button>
             
             <span className="block text-[10px] text-slate-400 text-center mt-3 leading-relaxed">
-              Secured connection to TikitiHub database records.
+              Secured connection to TikitiHub.
             </span>
           </Card>
         </div>

@@ -83,13 +83,13 @@ export const Register: React.FC = () => {
             
             {error && (
               <div className="mb-5 p-3.5 bg-red-50 border border-red-200 rounded-xl text-red-600 text-xs flex items-center justify-center gap-2 font-medium">
-                <span>⚠️</span> {error}
+                <span></span> {error}
               </div>
             )}
 
             {success && (
               <div className="mb-5 p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-600 text-xs flex items-center justify-center gap-2 font-medium">
-                <span>✅</span> {success}
+                <span></span> {success}
               </div>
             )}
 
@@ -156,7 +156,6 @@ export const Register: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 🛠️ Statically integrated UX validation container inside the layout track */}
                 <div className="p-4 bg-slate-50 border border-slate-100 rounded-2xl space-y-1.5 self-end">
                   <span className="block text-[9px] font-extrabold tracking-wider text-slate-400 uppercase mb-1">
                     Security Metric Baseline
