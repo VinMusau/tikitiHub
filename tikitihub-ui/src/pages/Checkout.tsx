@@ -206,7 +206,6 @@ export default function Checkout() {
           </Card>
         </div>
 
-        {/* Pricing Column Summary Panel */}
         <div className="sticky top-24">
           <Card className="p-5 bg-slate-50/60 border border-slate-200 rounded-2xl shadow-2xs">
             <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider mb-4">Total Breakdown</h3>

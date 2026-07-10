@@ -26,7 +26,6 @@ export const usePaymentStore = create<PaymentState>((set) => ({
         ticketId: ticketId.toString(),
         quantity: quantity.toString()
       });
-      console.log("=== DARAJA RESPONDED WITH ===", data);
 
       if (data && data.ResponseCode === "0") {
         set({
