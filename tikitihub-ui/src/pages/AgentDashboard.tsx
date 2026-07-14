@@ -1,12 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useEventStore } from '../stores/eventStore';
 import { useAuthStore } from '../stores/authStore';
 import { useBookingStore } from '../stores/useBookingStore';
 import { 
   Plus, Calendar, Clock, MapPin, DollarSign, Users, TrendingUp, 
   X, Briefcase, BarChart3, CheckCircle2, Image as ImageIcon, 
-  Percent, AlertCircle, RefreshCw, Layers
+  Percent, AlertCircle, RefreshCw, Layers, Camera, StopCircle
 } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
 
 export default function AgentDashboard() {
   const { events = [], loading, error, createEvent, fetchMyListings } = useEventStore();
@@ -70,25 +71,82 @@ export default function AgentDashboard() {
   const [scanLoading, setScanLoading] = useState(false);
   const [recentScans, setRecentScans] = useState<Array<{token: string, time: string, success: boolean}>>([]);
 
-  const handleScanSubmit = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!scanToken.trim()) return;
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+  const SCANNER_ID = "camera-qr-reader";
+
+  const stopCameraEngine = async () => {
+    if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+      try {
+        await html5QrCodeRef.current.stop();
+      } catch (err) {
+        console.error("Failed to stop QR scanner camera:", err);
+      }
+    }
+    setIsCameraActive(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+        html5QrCodeRef.current.stop().catch(console.error);
+      }
+    };
+  }, [activeTab]);
+
+  const handleScanSubmit = async (tokenToSubmit?: string) => {
+    const targetToken = (tokenToSubmit || scanToken).trim();
+    if (!targetToken) return;
 
     setScanLoading(true);
     setScanStatus(null);
 
-    const tokenInput = scanToken.trim();
-    const result = await redeemTicketGateScan(tokenInput);
+    const result = await redeemTicketGateScan(targetToken);
     
     setScanStatus(result);
     setScanLoading(false);
     
     setRecentScans(prev => [
-      { token: tokenInput, time: new Date().toLocaleTimeString(), success: result.success },
+      { token: targetToken, time: new Date().toLocaleTimeString(), success: result.success },
       ...prev.slice(0, 4)
     ]);
     
     setScanToken('');
+  };
+
+  const startCameraEngine = async () => {
+    setIsCameraActive(true);
+    setScanStatus(null);
+    
+    setTimeout(async () => {
+      try {
+        const html5QrCode = new Html5Qrcode(SCANNER_ID);
+        html5QrCodeRef.current = html5QrCode;
+
+        await html5QrCode.start(
+          { facingMode: "environment" }, 
+          {
+            fps: 10,
+            qrbox: (width, height) => {
+              const size = Math.min(width, height) * 0.7;
+              return { width: size, height: size };
+            }
+          },
+          async (decodedText) => {
+            await html5QrCode.stop(); 
+            setIsCameraActive(false);
+            
+            handleScanSubmit(decodedText);
+          },
+          () => {
+          }
+        );
+      } catch (err) {
+        console.error("Camera permissions denied or device missing:", err);
+        setIsCameraActive(false);
+        setScanStatus({ success: false, message: "Could not open back camera. Please check permissions." });
+      }
+    }, 100);
   };
 
   return (
@@ -106,7 +164,7 @@ export default function AgentDashboard() {
                 Verified Host
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-1">Account Class: <span className="text-purple-600 font-bold uppercase">Event Organiser</span></p>
+            <p className="text-xs text-slate-500 mt-1">Account Class: <span className="text-purple-600 font-bold uppercase">Event Administrator</span></p>
             <p className="text-xs font-mono text-slate-400 mt-0.5">{user?.email}</p>
           </div>
         </div>
@@ -162,7 +220,7 @@ export default function AgentDashboard() {
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={(e) => { e.preventDefault(); handleScanSubmit(); }} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Event Title *</label>
@@ -321,6 +379,7 @@ export default function AgentDashboard() {
 
                         <p className="text-xs text-slate-400 line-clamp-2 font-normal leading-relaxed">{event.description}</p>
 
+                        {/* Ticket Progress Burn Indicator */}
                         <div className="space-y-1 pt-1">
                           <div className="flex justify-between text-[10px] font-bold text-slate-400 uppercase">
                             <span>Capacity Consumption</span>
@@ -351,7 +410,6 @@ export default function AgentDashboard() {
           )}
         </div>
       ) : (
-
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           <div className="bg-white border border-slate-200 rounded-3xl p-6 text-center space-y-4 shadow-xs lg:col-span-2">
             <div className="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center text-purple-600 border border-purple-100 mx-auto shadow-2xs">
@@ -360,8 +418,41 @@ export default function AgentDashboard() {
             <div>
               <h3 className="text-lg font-bold text-slate-900 tracking-tight">Venue Entry Verification Gate</h3>
               <p className="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto mt-1">
-                Aim your visual mobile camera feed or hardware terminal gun target laser directly over the customer's secure pass token.
+                Verify customer barcodes using a scanner or launch your device's camera below to scan QR codes on the fly.
               </p>
+            </div>
+
+            <div className="pt-2">
+              {isCameraActive ? (
+                <div className="space-y-4">
+                  <div className="relative mx-auto max-w-xs aspect-square bg-black rounded-2xl overflow-hidden border-2 border-purple-500 shadow-md">
+                    <div id={SCANNER_ID} className="w-full h-full" />
+                    <div className="absolute inset-0 border-[32px] border-black/40 pointer-events-none flex items-center justify-center">
+                      <div className="w-full h-full border-2 border-dashed border-purple-400 animate-pulse rounded" />
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={stopCameraEngine}
+                    className="px-4 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs rounded-xl flex items-center gap-2 mx-auto cursor-pointer"
+                  >
+                    <StopCircle className="w-4 h-4" /> Terminate Camera Stream
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={startCameraEngine}
+                  className="px-5 py-3 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 font-bold text-xs rounded-2xl flex items-center gap-2.5 mx-auto transition-all cursor-pointer hover:scale-[1.02]"
+                >
+                  <Camera className="w-4 h-4 text-purple-600" /> Enable Camera QR Scanner
+                </button>
+              )}
+            </div>
+
+            <div className="relative flex py-2 items-center">
+              <div className="flex-grow border-t border-slate-100"></div>
+              <span className="flex-shrink mx-4 text-[10px] text-slate-400 font-bold uppercase tracking-wider">or manual lookup</span>
+              <div className="flex-grow border-t border-slate-100"></div>
             </div>
 
             {scanStatus && (
@@ -375,7 +466,7 @@ export default function AgentDashboard() {
               </div>
             )}
 
-            <form onSubmit={handleScanSubmit} className="flex gap-2 max-w-md mx-auto pt-2">
+            <form onSubmit={(e) => { e.preventDefault(); handleScanSubmit(); }} className="flex gap-2 max-w-md mx-auto">
               <input 
                 type="text" 
                 autoFocus 
