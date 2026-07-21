@@ -9,6 +9,7 @@ import Layout from './components/layout/Layout';
 import Login from './pages/Login'; 
 import AgentDashboard from './pages/AgentDashboard';
 import { Register } from './pages/Register';
+import VerifyEmail from './pages/VerifyEmail';
 
 function App() {
   const { user } = useAuthStore();
@@ -22,6 +23,7 @@ function App() {
           <Route path="/event/:id" element={isAgent ? <Navigate to="/organizer/dashboard" replace /> : <EventDetail />} />
           <Route path="/checkout" element={isAgent ? <Navigate to="/organizer/dashboard" replace /> : <Checkout />} />
           <Route path="/my-tickets" element={isAgent ? <Navigate to="/organizer/dashboard" replace /> : <MyTickets />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
           
           <Route 
             path="/organizer/dashboard" 

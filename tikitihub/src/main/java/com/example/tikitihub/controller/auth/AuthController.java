@@ -2,6 +2,7 @@ package com.example.tikitihub.controller.auth;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -12,17 +13,19 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.tikitihub.model.User;
 import com.example.tikitihub.model.UserRole;
 import com.example.tikitihub.repository.UserRepository;
-import com.example.tikitihub.service.JwtService;
 import com.example.tikitihub.service.EmailService;
+import com.example.tikitihub.service.JwtService;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -87,7 +90,11 @@ public class AuthController {
 
         userRepository.save(user);
 
-        emailService.sendVerificationEmail(email, generatedToken, fullName);
+        try {
+            emailService.sendVerificationEmail(email, generatedToken, fullName);
+        } catch (Exception e) {
+            System.err.println("Verification email failed to send: " + e.getMessage());
+        }
 
         return new ResponseEntity<>(Map.of("message", "User registered successfully!"), HttpStatus.CREATED);
     }
@@ -121,14 +128,24 @@ public class AuthController {
     }
 
     @GetMapping("/verify")
-    public ResponseEntity<?> verifyUserAccount(@RequestParam("token") String token) {
-        return userRepository.findByVerificationToken(token)
-            .map(user -> {
-                user.setEnabled(true);
-                user.setVerificationToken(null); // Clear token usage footprint
-                userRepository.save(user);
-                return ResponseEntity.ok(Map.of("message", "Account successfully activated! Proceed to secure login space."));
-            })
-            .orElseGet(() -> ResponseEntity.badRequest().body(Map.of("error", "Invalid or expired activation verification token reference.")));
+    @Transactional
+    public ResponseEntity<?> verifyEmail(@RequestParam("token") String token) {
+        if (token == null || token.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid token link."));
+        }
+
+        Optional<User> userOptional = userRepository.findByVerificationToken(token.trim());
+
+        if (userOptional.isEmpty()) {
+            return ResponseEntity.ok(Map.of("message", "Account is already activated! You can log in."));
+        }
+
+        User user = userOptional.get();
+        user.setEnabled(true);
+        user.setVerificationToken(null);
+
+        userRepository.saveAndFlush(user);
+
+        return ResponseEntity.ok(Map.of("message", "Account successfully activated!"));
     }
 }

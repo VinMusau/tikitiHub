@@ -1,8 +1,11 @@
 package com.example.tikitihub.service;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+
 import jakarta.mail.internet.MimeMessage;
 @Service
 public class EmailService {
@@ -12,9 +15,12 @@ public class EmailService {
     public EmailService(JavaMailSender mailSender) {
         this.mailSender = mailSender;
     }
+    @Value("${app.frontend.url}")
+    private String frontendUrl;
 
+    @Async
     public void sendVerificationEmail(String targetEmail, String token, String fullName) {
-        String activationUrl = "/verify-email?token=" + token; 
+        String activationUrl = frontendUrl + "/verify-email?token=" + token; 
         
         try {
             MimeMessage message = mailSender.createMimeMessage();

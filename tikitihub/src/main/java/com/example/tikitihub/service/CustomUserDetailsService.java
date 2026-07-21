@@ -1,15 +1,13 @@
 package com.example.tikitihub.service;
 
-import com.example.tikitihub.model.User;
-import com.example.tikitihub.repository.UserRepository;
-
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
+import com.example.tikitihub.model.User;
+import com.example.tikitihub.repository.UserRepository;
 
 @Service
 public class CustomUserDetailsService implements UserDetailsService {
@@ -31,6 +29,7 @@ public class CustomUserDetailsService implements UserDetailsService {
         return org.springframework.security.core.userdetails.User
             .withUsername(user.getEmail())
             .password(user.getPassword())
+            .disabled(!user.isEnabled())
             .authorities(new SimpleGrantedAuthority(authorityName)) 
             .build();
     }
