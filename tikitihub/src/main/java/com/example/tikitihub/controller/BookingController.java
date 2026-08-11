@@ -35,6 +35,17 @@ public class BookingController {
         this.userRepository = userRepository;
     }
 
+    public static class GateScanRequest {
+        private String qrRedemptionToken;
+        private Long eventId;
+
+        public String getQrRedemptionToken() { return qrRedemptionToken; }
+        public void setQrRedemptionToken(String qrRedemptionToken) { this.qrRedemptionToken = qrRedemptionToken; }
+
+        public Long getEventId() { return eventId; }
+        public void setEventId(Long eventId) { this.eventId = eventId; }
+    }
+
     // PURCHASE a ticket 
     @PostMapping
     public ResponseEntity<?> purchaseTicket(@RequestBody Booking booking) {
@@ -61,24 +72,36 @@ public class BookingController {
         return new ResponseEntity<>(savedBooking, HttpStatus.CREATED);
     }
 
-    // REDEEM a ticket 
+    // REDEEM a ticket (Scoped to Event)
     @PostMapping("/redeem")
-    public ResponseEntity<?> redeemTicket(@RequestBody Map<String, String> request) {
-        String token = request.get("qrRedemptionToken");
-        
-        Booking booking = bookingRepository.findByQrRedemptionToken(token)
-                .orElse(null);
+    public ResponseEntity<?> redeemTicket(@RequestBody GateScanRequest request) {
+        if (request.getQrRedemptionToken() == null || request.getEventId() == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Both qrRedemptionToken and eventId are required"));
+        }
 
+        String token = request.getQrRedemptionToken();
+        Long eventId = request.getEventId();
+
+        Booking booking = bookingRepository.findByQrRedemptionToken(token).orElse(null);
+
+        // 1. Check if token exists
         if (booking == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "INVALID QR CODE"));
         }
 
+        // 2. Check if ticket belongs to the current event being checked in
+        if (booking.getEventTicket() == null || !booking.getEventTicket().getId().equals(eventId)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("error", "WRONG EVENT GATE! This ticket is registered for a different event."));
+        }
+
+        // 3. Check if ticket has already been scanned
         if ("REDEEMED".equals(booking.getStatus())) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", "ALREADY USED! Scanned at " + booking.getScannedAt()));
         }
 
-        // Successfully redeem
+        // 4. Successfully redeem
         booking.setStatus("REDEEMED");
         booking.setScannedAt(LocalDateTime.now());
         bookingRepository.save(booking);

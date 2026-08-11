@@ -5,13 +5,17 @@ import java.time.LocalDateTime;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PostLoad;
 import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -52,6 +56,10 @@ public class Ticket {
     @Column(columnDefinition = "TEXT")
     private String imageUrl;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private TicketStatus status = TicketStatus.UPCOMING;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "organizer_id", nullable = false)
     private User organizer;
@@ -63,6 +71,27 @@ public class Ticket {
         this.createdAt = LocalDateTime.now();
         if (this.remainingQuantity == null) {
             this.remainingQuantity = this.totalQuantity;
+        }
+        updateStatus();
+    }
+
+    @PreUpdate
+    @PostLoad
+    public void updateStatus() {
+        if (this.status == TicketStatus.CANCELLED) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        
+        if (this.eventDate != null && this.eventDate.isBefore(now)) {
+            this.status = TicketStatus.EXPIRED;
+        } 
+        else if (this.remainingQuantity != null && this.remainingQuantity <= 0) {
+            this.status = TicketStatus.SOLD_OUT;
+        } 
+        else {
+            this.status = TicketStatus.UPCOMING;
         }
     }
 }

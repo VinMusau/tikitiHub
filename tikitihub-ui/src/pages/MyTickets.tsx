@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { useBookingStore } from '../stores/useBookingStore';
-import { Ticket, Calendar, Clock, MapPin, ArrowRight, ShieldCheck, HelpCircle, Check } from 'lucide-react';
+import { Ticket, Calendar, Clock, MapPin, ArrowRight, ShieldCheck, HelpCircle, Check, AlertCircle } from 'lucide-react';
 import { TicketDownloader } from '../components/TicketDownloader';
 
 export default function MyTickets() {
@@ -17,10 +17,12 @@ export default function MyTickets() {
     }
   }, [user, fetchUserBookings]);
 
+  // Updated badge styles to handle EXPIRED status
   const getStatusStyle = (status: string) => {
     switch (status) {
       case 'REDEEMED': return 'bg-indigo-50 text-indigo-700 border-indigo-200';
       case 'CONFIRMED': return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'EXPIRED': return 'bg-amber-50 text-amber-700 border-amber-200';
       default: return 'bg-slate-50 text-slate-600 border-slate-200';
     }
   };
@@ -97,15 +99,24 @@ export default function MyTickets() {
           /* BOOKINGS LIST */
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {bookings.map((booking: any) => {
-              const isRedeemed = booking.status === 'REDEEMED';
               const targetTicket = booking.eventTicket || {};
               
-              // Map payload dynamically so it matches what TicketDownloader requires internally
+              // 🕒 1. Check if event date has passed
+              const rawEventDate = targetTicket.eventDate || targetTicket.date;
+              const isEventPassed = rawEventDate ? new Date(rawEventDate) < new Date() : false;
+              
+              // 🏷️ 2. Determine effective status
+              const isRedeemed = booking.status === 'REDEEMED';
+              const isExpired = isEventPassed || targetTicket.status === 'EXPIRED' || booking.status === 'EXPIRED';
+              
+              const displayStatus = isRedeemed ? 'REDEEMED' : (isExpired ? 'EXPIRED' : (booking.status || 'CONFIRMED'));
+              
+              // Map payload dynamically
               const downloadPayload = {
                 id: booking.id,
                 quantity: booking.quantity,
                 qrRedemptionToken: booking.qrRedemptionToken,
-                status: booking.status || 'PURCHASED',
+                status: displayStatus,
                 createdAt: booking.createdAt,
                 buyer: {
                   fullName: user.email?.split('@')[0] || 'Attendee',
@@ -121,7 +132,9 @@ export default function MyTickets() {
               return (
                 <div 
                   key={booking.id}
-                  className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs flex flex-col justify-between transition-all relative hover:border-slate-300"
+                  className={`bg-white rounded-3xl border overflow-hidden shadow-xs flex flex-col justify-between transition-all relative ${
+                    isExpired ? 'border-slate-200 opacity-75 grayscale-[20%]' : 'border-slate-200 hover:border-slate-300'
+                  }`}
                 >
                   <div className="absolute top-1/2 left-0 w-3 h-6 bg-slate-50 border-r border-t border-b border-slate-200 rounded-r-full -translate-y-1/2" />
                   <div className="absolute top-1/2 right-0 w-3 h-6 bg-slate-50 border-l border-t border-b border-slate-200 rounded-l-full -translate-y-1/2" />
@@ -130,22 +143,33 @@ export default function MyTickets() {
                   <div className="p-5 border-b border-dashed border-slate-200">
                     <div className="flex justify-between items-start gap-3">
                       <div>
-                        <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md border ${getStatusStyle(booking.status)}`}>
-                          {booking.status || 'CONFIRMED'}
+                        <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-md border ${getStatusStyle(displayStatus)}`}>
+                          {displayStatus}
                         </span>
                         <h3 className="text-sm font-bold text-slate-900 mt-2 truncate max-w-[200px]">
                           {targetTicket.eventName || 'TikitiHub Event'}
                         </h3>
                       </div>
-                      <span className="text-xs font-bold text-indigo-600 font-mono shrink-0 bg-indigo-50 border border-indigo-100 px-2 py-1 rounded">
+                      <span className={`text-xs font-bold font-mono shrink-0 px-2 py-1 rounded border ${
+                        isExpired ? 'bg-slate-100 text-slate-400 border-slate-200' : 'bg-indigo-50 text-indigo-600 border-indigo-100'
+                      }`}>
                         {booking.qrRedemptionToken ? booking.qrRedemptionToken.substring(0, 10) + '...' : 'VALID'}
                       </span>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 mt-4 text-[11px] text-slate-500 font-medium">
-                      <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5 text-slate-400" /> {targetTicket.date || 'Upcoming'}</span>
-                      <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-slate-400" /> {targetTicket.time || '18:00'}</span>
-                      <span className="flex items-center gap-1 col-span-2"><MapPin className="w-3.5 h-3.5 text-slate-400" /> {targetTicket.venue || 'Main Stage Lounge'}</span>
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400" /> 
+                        {rawEventDate ? new Date(rawEventDate).toLocaleDateString() : 'Upcoming'}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5 text-slate-400" /> 
+                        {rawEventDate ? new Date(rawEventDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '18:00'}
+                      </span>
+                      <span className="flex items-center gap-1 col-span-2">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400" /> 
+                        {targetTicket.venue || 'Main Stage Lounge'}
+                      </span>
                     </div>
                   </div>
 
@@ -171,6 +195,10 @@ export default function MyTickets() {
                           <span className="text-[10px] text-indigo-600 font-bold flex items-center gap-1">
                             <Check className="w-3.5 h-3.5" /> Redeemed at Gate
                           </span>
+                        ) : isExpired ? (
+                          <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
+                            <AlertCircle className="w-3.5 h-3.5" /> Event Concluded
+                          </span>
                         ) : (
                           <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
                             ● Pass Active
@@ -179,7 +207,16 @@ export default function MyTickets() {
                       </div>
                       
                       <div className="flex-1 max-w-[240px]">
-                        <TicketDownloader booking={downloadPayload} />
+                        {isExpired ? (
+                          <button
+                            disabled
+                            className="w-full py-2 px-3 bg-slate-200 text-slate-400 rounded-xl text-xs font-bold cursor-not-allowed text-center block"
+                          >
+                            Pass Expired
+                          </button>
+                        ) : (
+                          <TicketDownloader booking={downloadPayload} />
+                        )}
                       </div>
                     </div>
                   </div>
@@ -194,9 +231,9 @@ export default function MyTickets() {
       <div className="bg-white rounded-2xl border border-slate-200 p-5 flex items-start gap-3 max-w-3xl mx-auto shadow-2xs">
         <HelpCircle className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
         <div>
-          <h4 className="text-xs font-bold text-slate-800">Seating Rules</h4>
+          <h4 className="text-xs font-bold text-slate-800">Seating & Expiry Rules</h4>
           <p className="text-[11px] text-slate-400 leading-relaxed mt-1">
-            Event seating and ticketing is subject to venue capacity and event organizer policies. Please ensure you arrive on time and adhere to the event's guidelines for a smooth experience.
+            Tickets are valid strictly up to the scheduled event start time. Expired passes cannot be downloaded or used for gate entry.
           </p>
         </div>
       </div>

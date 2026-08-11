@@ -1,8 +1,8 @@
 package com.example.tikitihub.model;
 
 public  enum TicketStatus {
-    OPEN,
-    IN_PROGRESS,
-    RESOLVED,
-    CLOSED
+    UPCOMING,
+    EXPIRED,
+    SOLD_OUT,
+    CANCELLED
 }

@@ -16,6 +16,9 @@ export default function AgentDashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'events' | 'check-in'>('overview');
   const [showCreateForm, setShowCreateForm] = useState(false);
 
+  // Active Gate Event ID state for cross-event scan prevention
+  const [selectedEventId, setSelectedEventId] = useState<string | number>('');
+
   const [formData, setFormData] = useState({
     eventName: '', description: '', venue: '', eventDate: '', price: '', totalQuantity: '', imageUrl: ''
   });
@@ -23,6 +26,13 @@ export default function AgentDashboard() {
   useEffect(() => {
     fetchMyListings();
   }, [fetchMyListings]);
+
+  // Set default selected event ID whenever events are loaded
+  useEffect(() => {
+    if (events && events.length > 0 && !selectedEventId) {
+      setSelectedEventId(events[0].id);
+    }
+  }, [events, selectedEventId]);
 
   const totalRevenue = (events || []).reduce((sum: number, e: any) => {
     const sold = e.totalQuantity - (e.remainingQuantity ?? e.totalQuantity);
@@ -98,10 +108,19 @@ export default function AgentDashboard() {
     const targetToken = (tokenToSubmit || scanToken).trim();
     if (!targetToken) return;
 
+    if (!selectedEventId) {
+      setScanStatus({ success: false, message: "Please select an active event gate before scanning." });
+      return;
+    }
+
     setScanLoading(true);
     setScanStatus(null);
 
-    const result = await redeemTicketGateScan(targetToken);
+    // Pass both token and eventId to the backend
+    const result = await redeemTicketGateScan({
+      qrRedemptionToken: targetToken,
+      eventId: selectedEventId
+    });
     
     setScanStatus(result);
     setScanLoading(false);
@@ -220,7 +239,7 @@ export default function AgentDashboard() {
             </button>
           </div>
 
-          <form onSubmit={(e) => { e.preventDefault(); handleScanSubmit(); }} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Event Title *</label>
@@ -418,8 +437,27 @@ export default function AgentDashboard() {
             <div>
               <h3 className="text-lg font-bold text-slate-900 tracking-tight">Venue Entry Verification Gate</h3>
               <p className="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto mt-1">
-                Verify customer barcodes using a scanner or launch your device's camera below to scan QR codes on the fly.
+                Select your active gate event and verify customer barcodes using a scanner or device camera.
               </p>
+            </div>
+
+            {/* Active Event Selection Dropdown */}
+            <div className="max-w-md mx-auto text-left pt-2">
+              <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1.5">
+                Target Check-In Event *
+              </label>
+              <select
+                value={selectedEventId}
+                onChange={(e) => setSelectedEventId(e.target.value)}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-purple-500"
+              >
+                <option value="" disabled>-- Choose Event Gate --</option>
+                {(events || []).map((evt: any) => (
+                  <option key={evt.id} value={evt.id}>
+                    {evt.eventName} (ID: #{evt.id})
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="pt-2">
@@ -442,7 +480,8 @@ export default function AgentDashboard() {
               ) : (
                 <button
                   onClick={startCameraEngine}
-                  className="px-5 py-3 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 font-bold text-xs rounded-2xl flex items-center gap-2.5 mx-auto transition-all cursor-pointer hover:scale-[1.02]"
+                  disabled={!selectedEventId}
+                  className="px-5 py-3 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-700 font-bold text-xs rounded-2xl flex items-center gap-2.5 mx-auto transition-all cursor-pointer hover:scale-[1.02] disabled:opacity-50 disabled:pointer-events-none"
                 >
                   <Camera className="w-4 h-4 text-purple-600" /> Enable Camera QR Scanner
                 </button>
@@ -478,7 +517,7 @@ export default function AgentDashboard() {
               />
               <button 
                 type="submit"
-                disabled={scanLoading || !scanToken.trim()}
+                disabled={scanLoading || !scanToken.trim() || !selectedEventId}
                 className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer shrink-0"
               >
                 {scanLoading ? 'Processing...' : 'Verify Code'}

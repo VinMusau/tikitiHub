@@ -44,6 +44,7 @@ public class SecurityConfig {
                     session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                     .requestMatchers("/api/auth/**", "/api/events/**").permitAll()
+                    .requestMatchers("/error").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/tickets/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/bookings/**").permitAll()
                     .requestMatchers("/api/payments/mpesa-callback").permitAll()
