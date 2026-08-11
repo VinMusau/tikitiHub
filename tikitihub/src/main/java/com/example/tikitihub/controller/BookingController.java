@@ -84,24 +84,20 @@ public class BookingController {
 
         Booking booking = bookingRepository.findByQrRedemptionToken(token).orElse(null);
 
-        // 1. Check if token exists
         if (booking == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "INVALID QR CODE"));
         }
 
-        // 2. Check if ticket belongs to the current event being checked in
         if (booking.getEventTicket() == null || !booking.getEventTicket().getId().equals(eventId)) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("error", "WRONG EVENT GATE! This ticket is registered for a different event."));
         }
 
-        // 3. Check if ticket has already been scanned
         if ("REDEEMED".equals(booking.getStatus())) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", "ALREADY USED! Scanned at " + booking.getScannedAt()));
         }
 
-        // 4. Successfully redeem
         booking.setStatus("REDEEMED");
         booking.setScannedAt(LocalDateTime.now());
         bookingRepository.save(booking);
