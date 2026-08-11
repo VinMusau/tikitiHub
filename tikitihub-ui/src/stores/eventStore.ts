@@ -61,6 +61,7 @@ export const useEventStore = create<EventState>((set) => ({
         venue: eventData.venue,
         eventDate: eventData.eventDate, 
         price: eventData.price,
+        imageUrl: eventData.imageUrl,
         totalQuantity: eventData.totalQuantity,
         remainingQuantity: eventData.totalQuantity 
       });
