@@ -27,7 +27,6 @@ export const useAuthStore = create<AuthState>()(
         set({ loading: true, error: null });
         try {
           const { data } = await apiClient.post('/auth/login', { email, password });
-          console.log("=== RAW BACKEND LOGIN RESPONSE DATA ===", data);
           
           if (data && data.token) {
             set({ 

@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import apiClient from '../lib/client';
 
+export interface ScanResponse {
+  success: boolean;
+  message: string;
+}
+
 interface BookingState {
   bookings: any[];
   loading: boolean;
@@ -9,7 +14,7 @@ interface BookingState {
   redeemTicketGateScan: (payload: {qrRedemptionToken: string; eventId: string | number}) => Promise<ScanResponse>;
 }
 
-export const useBookingStore = create<BookingState>((set, get) => ({
+export const useBookingStore = create<BookingState>((set) => ({
   bookings: [],
   loading: false,
   error: null,

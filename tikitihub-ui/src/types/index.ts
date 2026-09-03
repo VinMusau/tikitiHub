@@ -2,13 +2,23 @@ export interface User {
   id: number;
   email: string;
   fullName: string;
-  role: 'USER' | 'ORGANIZER' | 'AGENT' | 'ADMIN' | 'ROLE_USER' | 'ROLE_ORGANIZER' | 'ROLE_AGENT' | 'ROLE_ADMIN';
+  password?: string;
+  role: 'USER' | 'ORGANIZER' | 'AGENT' | 'ADMIN' | 'ROLE_USER' | 'ROLE_ORGANIZER' | 'ROLE_AGENT' | 'ROLE_ADMIN' | string;
   createdAt?: string;
+}
+
+export interface TicketTier {
+  id?: number;
+  name: string;
+  price: number;
+  totalQuantity: number;
+  remainingQuantity?: number;
 }
 
 export interface Event {
   id: number;
   eventName: string;
+  title?: string;
   description: string;
   venue: string;
   eventDate: string;  // ISO date string
@@ -19,6 +29,7 @@ export interface Event {
   status: 'UPCOMING' | 'ONGOING' | 'CANCELLED' | 'SOLD_OUT';
   createdAt?: string;
   updatedAt?: string;
+  tiers?: TicketTier[];
 }
 
 export interface Order {
@@ -63,13 +74,16 @@ export interface AuthResponse {
 }
 
 export interface CreateEventRequest {
-  title: string;
+  title?: string;
+  eventName?: string;
   description: string;
   venue: string;
   eventDate: string;
-  totalTickets: number;
+  totalTickets?: number;
+  totalQuantity?: number;
   price: number;
   imageUrl?: string;
+  tiers?: TicketTier[];
 }
 
 export interface UpdateEventRequest extends Partial<CreateEventRequest> {

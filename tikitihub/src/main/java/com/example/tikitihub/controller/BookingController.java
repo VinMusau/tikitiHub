@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.example.tikitihub.model.Booking;
 import com.example.tikitihub.model.Ticket;
+import com.example.tikitihub.model.TicketTier;
+import com.example.tikitihub.repository.TicketTierRepository;
 import com.example.tikitihub.model.User;
 import com.example.tikitihub.repository.BookingRepository;
 import com.example.tikitihub.repository.TicketRepository;
@@ -28,11 +30,13 @@ public class BookingController {
     private final BookingRepository bookingRepository;
     private final TicketRepository ticketRepository;
     private final UserRepository userRepository;
+    private final TicketTierRepository ticketTierRepository;
 
-    public BookingController(BookingRepository bookingRepository, TicketRepository ticketRepository, UserRepository userRepository) {
+    public BookingController(BookingRepository bookingRepository, TicketRepository ticketRepository, UserRepository userRepository, TicketTierRepository ticketTierRepository) {
         this.bookingRepository = bookingRepository;
         this.ticketRepository = ticketRepository;
         this.userRepository = userRepository;
+        this.ticketTierRepository = ticketTierRepository;
     }
 
     public static class GateScanRequest {
@@ -49,24 +53,30 @@ public class BookingController {
     // PURCHASE a ticket 
     @PostMapping
     public ResponseEntity<?> purchaseTicket(@RequestBody Booking booking) {
-        Ticket event = ticketRepository.findById(booking.getEventTicket().getId())
-                .orElseThrow(() -> new RuntimeException("Event not found"));
+        if (booking.getTicketTier() == null || booking.getTicketTier().getId() == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Ticket tier ID is required"));
+        }
 
-        // Ensure enough tickets remain
-        if (event.getRemainingQuantity() < booking.getQuantity()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Not enough tickets left!"));
+        TicketTier tier = ticketTierRepository.findById(booking.getTicketTier().getId())
+                .orElseThrow(() -> new RuntimeException("Ticket tier not found"));
+
+        if (tier.getRemainingQuantity() < booking.getQuantity()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Not enough " + tier.getName() + " tickets left!"));
         }
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentPrincipalEmail = authentication.getName();
 
         User dbUser = userRepository.findByEmail(currentPrincipalEmail)
-            .orElseThrow(() -> new RuntimeException("Buyer account profile not found"));
-        booking.setBuyer(dbUser);
+                .orElseThrow(() -> new RuntimeException("Buyer account profile not found"));
 
-        // Deduct ticket count from inventory
-        event.setRemainingQuantity(event.getRemainingQuantity() - booking.getQuantity());
-        ticketRepository.save(event);
+        // Deduct quantity from the specific tier
+        tier.setRemainingQuantity(tier.getRemainingQuantity() - booking.getQuantity());
+        ticketTierRepository.save(tier);
+
+        booking.setBuyer(dbUser);
+        booking.setEventTicket(tier.getTicket()); // Set event reference
+        booking.setTicketTier(tier);             // Set tier reference
 
         Booking savedBooking = bookingRepository.save(booking);
         return new ResponseEntity<>(savedBooking, HttpStatus.CREATED);

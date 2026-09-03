@@ -1,7 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useEventStore } from '../stores/eventStore';
-import { Search, Sparkles, ArrowRight, Calendar, MapPin, Tag, SlidersHorizontal, Image as ImageIcon } from 'lucide-react';
+import { Search, ArrowRight, Calendar, MapPin, Tag, SlidersHorizontal, Image as ImageIcon } from 'lucide-react';
 
 export default function Home() {
   const navigate = useNavigate();

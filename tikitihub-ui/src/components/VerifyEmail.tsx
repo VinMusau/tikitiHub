@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import apiClient from '../lib/client';
 
@@ -16,11 +16,11 @@ export default function VerifyEmail() {
     }
 
     apiClient.get(`/auth/verify?token=${token}`)
-      .then(() -> {
+      .then(() => {
         setStatus('success');
         setMessage('Your account is now fully active! You can now access full checkout features.');
       })
-      .catch((err: any) -> {
+      .catch((err: any) => {
         setStatus('error');
         setMessage(err.response?.data?.error || 'Verification pipeline tracing token expired.');
       });
