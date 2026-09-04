@@ -70,7 +70,7 @@ public class Ticket {
     @JoinColumn(name = "organizer_id", nullable = false)
     private User organizer;
 
-    @OneToMany(mappedBy = "ticket", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "ticket", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @JsonIgnoreProperties("ticket")
     private List<TicketTier> tiers = new ArrayList<>();
 
@@ -81,6 +81,14 @@ public class Ticket {
         this.createdAt = LocalDateTime.now();
         if (this.remainingQuantity == null) {
             this.remainingQuantity = this.totalQuantity;
+        }
+        if (this.tiers != null) {
+            for (TicketTier tier : this.tiers) {
+                tier.setTicket(this);
+                if (tier.getRemainingQuantity() == null) {
+                    tier.setRemainingQuantity(tier.getTotalQuantity());
+                }
+            }
         }
         updateStatus();
     }

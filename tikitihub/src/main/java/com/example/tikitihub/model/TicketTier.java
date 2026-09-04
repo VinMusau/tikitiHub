@@ -40,6 +40,13 @@ public class TicketTier {
     @JsonIgnoreProperties({"tiers", "hibernateLazyInitializer", "handler"})
     private Ticket ticket; 
 
+    @jakarta.persistence.PrePersist
+    protected void onCreate() {
+        if (this.remainingQuantity == null) {
+            this.remainingQuantity = this.totalQuantity;
+        }
+    }
+
     public TicketTier() {}
 
     public TicketTier(String name, Double price, Integer totalQuantity, Ticket ticket) {

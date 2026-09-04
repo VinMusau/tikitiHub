@@ -45,7 +45,19 @@ export const useEventStore = create<EventState>((set) => ({
     set({ loading: true, error: null });
     try {
       const response = await apiClient.get(`/tickets/${id}`);
-      const data = await response.data || response;
+      const data = response.data || response;
+
+      if (!data.tiers || !Array.isArray(data.tiers) || data.tiers.length === 0) {
+        try {
+          const tiersRes = await apiClient.get(`/tickets/${id}/tiers`);
+          if (tiersRes.data && Array.isArray(tiersRes.data) && tiersRes.data.length > 0) {
+            data.tiers = tiersRes.data;
+          }
+        } catch {
+          // ignore fallback error
+        }
+      }
+
       set({ currentEvent: data, loading: false });
     } catch (error) {
       set({ error: 'Failed to fetch event', loading: false });
@@ -63,7 +75,8 @@ export const useEventStore = create<EventState>((set) => ({
         price: eventData.price,
         imageUrl: eventData.imageUrl,
         totalQuantity: eventData.totalQuantity,
-        remainingQuantity: eventData.totalQuantity 
+        remainingQuantity: eventData.totalQuantity,
+        tiers: eventData.tiers
       });
       set({ loading: false });
     } catch (error) {

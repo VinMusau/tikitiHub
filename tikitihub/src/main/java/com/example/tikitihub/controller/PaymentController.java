@@ -1,4 +1,4 @@
-package com.example.tikitihub.controller.payment;
+package com.example.tikitihub.controller;
 
 import com.example.tikitihub.model.Transaction;
 import com.example.tikitihub.model.Ticket;

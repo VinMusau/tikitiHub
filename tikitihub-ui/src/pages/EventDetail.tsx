@@ -24,10 +24,21 @@ export default function EventDetail() {
   // When event loads, preselect first available tier or default tier
   useEffect(() => {
     if (currentEvent) {
-      if (currentEvent.tiers && currentEvent.tiers.length > 0) {
+      let tiers: TicketTier[] = [];
+      if (Array.isArray(currentEvent.tiers)) {
+        tiers = currentEvent.tiers;
+      } else if (typeof currentEvent.tiers === 'string' && (currentEvent.tiers as string).trim()) {
+        try {
+          tiers = JSON.parse(currentEvent.tiers);
+        } catch {
+          // ignore
+        }
+      }
+
+      if (tiers.length > 0) {
         // Pick first tier with remaining tickets, or fallback to first tier
-        const availableTier = currentEvent.tiers.find(t => (t.remainingQuantity ?? t.totalQuantity) > 0);
-        setSelectedTier(availableTier || currentEvent.tiers[0]);
+        const availableTier = tiers.find(t => (t.remainingQuantity ?? t.totalQuantity) > 0);
+        setSelectedTier(availableTier || tiers[0]);
       } else {
         setSelectedTier(null);
       }
@@ -46,7 +57,20 @@ export default function EventDetail() {
     );
   }
 
-  const hasTiers = currentEvent.tiers && currentEvent.tiers.length > 0;
+  let tiersList: TicketTier[] = [];
+  if (currentEvent.tiers) {
+    if (Array.isArray(currentEvent.tiers)) {
+      tiersList = currentEvent.tiers;
+    } else if (typeof currentEvent.tiers === 'string' && (currentEvent.tiers as string).trim()) {
+      try {
+        tiersList = JSON.parse(currentEvent.tiers);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  const hasTiers = tiersList.length > 0;
   
   const activePrice = selectedTier 
     ? selectedTier.price 
@@ -170,14 +194,14 @@ export default function EventDetail() {
             {/* Ticket Tier Cards */}
             {hasTiers ? (
               <div className="space-y-2.5">
-                {currentEvent.tiers!.map((tier) => {
-                  const isSelected = selectedTier?.id === tier.id;
+                {tiersList.map((tier, idx) => {
+                  const isSelected = selectedTier ? (selectedTier.id ? selectedTier.id === tier.id : selectedTier.name === tier.name) : false;
                   const tierRemaining = tier.remainingQuantity ?? tier.totalQuantity;
                   const isTierSoldOut = tierRemaining <= 0;
 
                   return (
                     <div
-                      key={tier.id}
+                      key={tier.id ?? idx}
                       onClick={() => !isTierSoldOut && handleTierSelect(tier)}
                       className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex justify-between items-center ${
                         isTierSoldOut

@@ -17,8 +17,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.tikitihub.model.Ticket;
+import com.example.tikitihub.model.TicketTier;
 import com.example.tikitihub.model.User;
 import com.example.tikitihub.repository.TicketRepository;
+import com.example.tikitihub.repository.TicketTierRepository;
 import com.example.tikitihub.repository.UserRepository;
 
 @RestController
@@ -30,6 +32,9 @@ public class TicketController {
 
     @Autowired
     private TicketRepository ticketRepository;
+
+    @Autowired
+    private TicketTierRepository ticketTierRepository;
 
     // CREATE an event ticket listing 
     @PostMapping
@@ -43,7 +48,21 @@ public class TicketController {
 
         ticket.setOrganizer(organizer);
 
+        List<TicketTier> incomingTiers = ticket.getTiers();
+
         Ticket savedTicket = ticketRepository.save(ticket);
+
+        if (incomingTiers != null && !incomingTiers.isEmpty()) {
+            for (TicketTier tier : incomingTiers) {
+                tier.setTicket(savedTicket);
+                if (tier.getRemainingQuantity() == null) {
+                    tier.setRemainingQuantity(tier.getTotalQuantity());
+                }
+                ticketTierRepository.save(tier);
+            }
+            savedTicket.setTiers(ticketTierRepository.findByTicketId(savedTicket.getId()));
+        }
+
         return new ResponseEntity<>(savedTicket, HttpStatus.CREATED);
     }
 
@@ -53,6 +72,14 @@ public class TicketController {
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
 
         List<Ticket> upcomingTickets = ticketRepository.findByEventDateAfterOrderByEventDateAsc(now);
+        for (Ticket t : upcomingTickets) {
+            if (t.getTiers() == null || t.getTiers().isEmpty()) {
+                List<TicketTier> tiers = ticketTierRepository.findByTicketId(t.getId());
+                if (tiers != null && !tiers.isEmpty()) {
+                    t.setTiers(tiers);
+                }
+            }
+        }
         return ResponseEntity.ok(upcomingTickets);
     }
 
@@ -60,8 +87,22 @@ public class TicketController {
     @GetMapping("/{id}")
     public ResponseEntity<Ticket> getTicketById(@PathVariable Long id) {
         return ticketRepository.findById(id)
-                .map(ResponseEntity::ok)
+                .map(ticket -> {
+                    if (ticket.getTiers() == null || ticket.getTiers().isEmpty()) {
+                        List<TicketTier> tiers = ticketTierRepository.findByTicketId(ticket.getId());
+                        if (tiers != null && !tiers.isEmpty()) {
+                            ticket.setTiers(tiers);
+                        }
+                    }
+                    return ResponseEntity.ok(ticket);
+                })
                 .orElse(ResponseEntity.notFound().build());
+    }
+
+    // GET ticket tiers for an event ticket
+    @GetMapping("/{id}/tiers")
+    public ResponseEntity<List<TicketTier>> getTicketTiers(@PathVariable Long id) {
+        return ResponseEntity.ok(ticketTierRepository.findByTicketId(id));
     }
 
     // Get only the tickets managed by the authenticated agent via /my-listings
@@ -71,7 +112,16 @@ public class TicketController {
         User organizer = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("Organizer not found"));
                 
-        return ResponseEntity.ok(ticketRepository.findByOrganizer(organizer));
+        List<Ticket> tickets = ticketRepository.findByOrganizer(organizer);
+        for (Ticket t : tickets) {
+            if (t.getTiers() == null || t.getTiers().isEmpty()) {
+                List<TicketTier> tiers = ticketTierRepository.findByTicketId(t.getId());
+                if (tiers != null && !tiers.isEmpty()) {
+                    t.setTiers(tiers);
+                }
+            }
+        }
+        return ResponseEntity.ok(tickets);
     }
 
     // UPDATE event ticket details
@@ -87,6 +137,18 @@ public class TicketController {
                     ticket.setTotalQuantity(updatedTicket.getTotalQuantity());
                     ticket.setRemainingQuantity(updatedTicket.getRemainingQuantity());
                     ticket.setImageUrl(updatedTicket.getImageUrl());
+
+                    if (updatedTicket.getTiers() != null && !updatedTicket.getTiers().isEmpty()) {
+                        for (TicketTier tier : updatedTicket.getTiers()) {
+                            tier.setTicket(ticket);
+                            if (tier.getRemainingQuantity() == null) {
+                                tier.setRemainingQuantity(tier.getTotalQuantity());
+                            }
+                            ticketTierRepository.save(tier);
+                        }
+                        ticket.setTiers(ticketTierRepository.findByTicketId(ticket.getId()));
+                    }
+
                     return ResponseEntity.ok(ticketRepository.save(ticket));
                 })
                 .orElse(ResponseEntity.notFound().build());
@@ -101,6 +163,14 @@ public class TicketController {
                 .orElseThrow(() -> new RuntimeException("Organizer not found"));
 
         List<Ticket> organizerEvents = ticketRepository.findByOrganizer(organizer);
+        for (Ticket t : organizerEvents) {
+            if (t.getTiers() == null || t.getTiers().isEmpty()) {
+                List<TicketTier> tiers = ticketTierRepository.findByTicketId(t.getId());
+                if (tiers != null && !tiers.isEmpty()) {
+                    t.setTiers(tiers);
+                }
+            }
+        }
         return ResponseEntity.ok(organizerEvents);
     }
 
