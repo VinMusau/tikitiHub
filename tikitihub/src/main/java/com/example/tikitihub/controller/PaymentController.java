@@ -1,31 +1,34 @@
 package com.example.tikitihub.controller;
 
-import com.example.tikitihub.model.Transaction;
-import com.example.tikitihub.model.Ticket;
+import java.math.BigDecimal;
+import java.util.Map;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 import com.example.tikitihub.model.Booking;
+import com.example.tikitihub.model.Ticket;
+import com.example.tikitihub.model.Transaction;
 import com.example.tikitihub.model.User;
-
-import com.example.tikitihub.repository.UserRepository;
-import com.example.tikitihub.repository.TransactionRepository;
-import com.example.tikitihub.repository.TicketRepository;
 import com.example.tikitihub.repository.BookingRepository;
+import com.example.tikitihub.repository.TicketRepository;
+import com.example.tikitihub.repository.TransactionRepository;
+import com.example.tikitihub.repository.UserRepository;
 import com.example.tikitihub.service.MpesaService;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-
 import jakarta.transaction.Transactional;
-import java.util.Map;
-import java.math.BigDecimal;
 
 @RestController
 @RequestMapping("/api/payments")
 public class PaymentController {
+
     private final MpesaService mpesaService;
     private final TransactionRepository transactionRepository;
     private final TicketRepository ticketRepository;
@@ -33,12 +36,17 @@ public class PaymentController {
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public PaymentController(TransactionRepository transactionRepository, TicketRepository ticketRepository, BookingRepository bookingRepository, UserRepository userRepository) {
+    public PaymentController(
+            MpesaService mpesaService,
+            TransactionRepository transactionRepository,
+            TicketRepository ticketRepository,
+            BookingRepository bookingRepository,
+            UserRepository userRepository) {
+        this.mpesaService = mpesaService;
         this.transactionRepository = transactionRepository;
         this.ticketRepository = ticketRepository;
         this.bookingRepository = bookingRepository;
         this.userRepository = userRepository;
-        this.mpesaService = new MpesaService();
     }
 
     @PostMapping("/stk-push")

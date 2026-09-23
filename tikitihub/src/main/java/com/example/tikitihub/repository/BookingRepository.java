@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import com.example.tikitihub.model.Booking;
+import com.example.tikitihub.model.User;
 
 @Repository
 public interface BookingRepository extends JpaRepository<Booking, Long> {
@@ -14,4 +15,8 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     Optional<Booking> findByQrRedemptionToken(String qrRedemptionToken);
 
     List<Booking> findByBuyerEmail(String email);
+
+    List<Booking> findByEventTicketId(Long eventId);
+
+    List<Booking> findByEventTicketOrganizer(User organizer);
 }

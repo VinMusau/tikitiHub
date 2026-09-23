@@ -1,13 +1,17 @@
 package com.example.tikitihub.controller;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,10 +21,10 @@ import org.springframework.web.bind.annotation.RestController;
 import com.example.tikitihub.model.Booking;
 import com.example.tikitihub.model.Ticket;
 import com.example.tikitihub.model.TicketTier;
-import com.example.tikitihub.repository.TicketTierRepository;
 import com.example.tikitihub.model.User;
 import com.example.tikitihub.repository.BookingRepository;
 import com.example.tikitihub.repository.TicketRepository;
+import com.example.tikitihub.repository.TicketTierRepository;
 import com.example.tikitihub.repository.UserRepository;
 
 @RestController
@@ -32,7 +36,12 @@ public class BookingController {
     private final UserRepository userRepository;
     private final TicketTierRepository ticketTierRepository;
 
-    public BookingController(BookingRepository bookingRepository, TicketRepository ticketRepository, UserRepository userRepository, TicketTierRepository ticketTierRepository) {
+    public BookingController(
+            BookingRepository bookingRepository, 
+            TicketRepository ticketRepository, 
+            UserRepository userRepository, 
+            TicketTierRepository ticketTierRepository
+    ) {
         this.bookingRepository = bookingRepository;
         this.ticketRepository = ticketRepository;
         this.userRepository = userRepository;
@@ -74,9 +83,16 @@ public class BookingController {
         tier.setRemainingQuantity(tier.getRemainingQuantity() - booking.getQuantity());
         ticketTierRepository.save(tier);
 
+        // Deduct from the parent ticket so dashboard metrics stay in sync
+        Ticket ticket = tier.getTicket();
+        if (ticket != null && ticket.getRemainingQuantity() != null) {
+            ticket.setRemainingQuantity(Math.max(0, ticket.getRemainingQuantity() - booking.getQuantity()));
+            ticketRepository.save(ticket);
+        }
+
         booking.setBuyer(dbUser);
         booking.setEventTicket(tier.getTicket()); // Set event reference
-        booking.setTicketTier(tier);             // Set tier reference
+        booking.setTicketTier(tier);              // Set tier reference
 
         Booking savedBooking = bookingRepository.save(booking);
         return new ResponseEntity<>(savedBooking, HttpStatus.CREATED);
@@ -122,5 +138,80 @@ public class BookingController {
 
         List<Booking> userBookings = bookingRepository.findByBuyerEmail(currentPrincipalEmail);
         return ResponseEntity.ok(userBookings);
+    }
+
+    /**
+     * Returns per-event and per-tier booking sales data for the authenticated organizer.
+     * This is the source of truth for the organizer dashboard performance metrics.
+     */
+    @GetMapping("/organizer-sales")
+    public ResponseEntity<List<Map<String, Object>>> getOrganizerSales(@AuthenticationPrincipal UserDetails userDetails) {
+        String email = userDetails.getUsername();
+        User organizer = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Organizer not found"));
+
+        List<Booking> allBookings = bookingRepository.findByEventTicketOrganizer(organizer);
+
+        // Group by event
+        Map<Long, Map<String, Object>> eventMap = new HashMap<>();
+
+        for (Booking b : allBookings) {
+            if (b.getEventTicket() == null) continue;
+
+            Long eventId = b.getEventTicket().getId();
+            Map<String, Object> eventEntry = eventMap.computeIfAbsent(eventId, k -> {
+                Map<String, Object> entry = new HashMap<>();
+                entry.put("eventId", eventId);
+                entry.put("eventName", b.getEventTicket().getEventName());
+                entry.put("totalSold", 0);
+                entry.put("totalRevenue", 0.0);
+                entry.put("tiers", new ArrayList<Map<String, Object>>());
+                return entry;
+            });
+
+            int qty = b.getQuantity() != null ? b.getQuantity() : 1;
+            double tierPrice = 0.0;
+            String tierName = "General";
+            Long tierId = null;
+
+            if (b.getTicketTier() != null) {
+                Double price = b.getTicketTier().getPrice();
+                tierPrice = price != null ? price : 0.0;
+                tierName = b.getTicketTier().getName();
+                tierId = b.getTicketTier().getId();
+            } else if (b.getEventTicket() != null) {
+                java.math.BigDecimal price = b.getEventTicket().getPrice();
+                tierPrice = price != null ? price.doubleValue() : 0.0;
+            }
+
+            eventEntry.put("totalSold", (int) eventEntry.get("totalSold") + qty);
+            eventEntry.put("totalRevenue", (double) eventEntry.get("totalRevenue") + (qty * tierPrice));
+
+            // Tier breakdown
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> tiers = (List<Map<String, Object>>) eventEntry.get("tiers");
+            final Long finalTierId = tierId;
+            Map<String, Object> tierEntry = tiers.stream()
+                    .filter(t -> {
+                        Object id = t.get("tierId");
+                        return finalTierId != null ? finalTierId.equals(id) : id == null;
+                    })
+                    .findFirst()
+                    .orElse(null);
+
+            if (tierEntry == null) {
+                tierEntry = new HashMap<>();
+                tierEntry.put("tierId", tierId);
+                tierEntry.put("tierName", tierName);
+                tierEntry.put("sold", 0);
+                tierEntry.put("revenue", 0.0);
+                tiers.add(tierEntry);
+            }
+
+            tierEntry.put("sold", (int) tierEntry.get("sold") + qty);
+            tierEntry.put("revenue", (double) tierEntry.get("revenue") + (qty * tierPrice));
+        }
+
+        return ResponseEntity.ok(new ArrayList<>(eventMap.values()));
     }
 }
