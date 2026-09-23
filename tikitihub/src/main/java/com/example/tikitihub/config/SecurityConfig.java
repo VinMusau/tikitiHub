@@ -19,6 +19,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.beans.factory.annotation.Value;
 
 import com.example.tikitihub.security.JwtAuthenticationFilter;
 import com.example.tikitihub.service.CustomUserDetailsService;
@@ -29,6 +30,9 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthFilter;
     private final CustomUserDetailsService userDetailsService;
+
+    @Value("${app.cors.allowed-origins}")
+    private List<String> allowedOrigins;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthFilter, CustomUserDetailsService userDetailsService) {
         this.jwtAuthFilter = jwtAuthFilter;
@@ -64,7 +68,7 @@ public class SecurityConfig {
 
         CorsConfiguration configuration = new CorsConfiguration();
 
-        configuration.setAllowedOrigins(List.of("http://localhost:5173, http://localhost:5174, http://localhost:5175, http://localhost:5176, http://localhost:5177, http://localhost:5178, http://localhost:5179, http://localhost:5180, http://localhost:5181, http://localhost:5182, http://localhost:5183, http://localhost:5184, http://localhost:5185, http://localhost:5186, http://localhost:5187, http://localhost:5188, http://localhost:5189, http://localhost:5190"));
+        configuration.setAllowedOrigins(allowedOrigins);
 
         configuration.setAllowedMethods(
                 List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
