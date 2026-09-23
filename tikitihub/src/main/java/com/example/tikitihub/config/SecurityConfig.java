@@ -2,6 +2,7 @@ package com.example.tikitihub.config;
 
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -19,7 +20,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.beans.factory.annotation.Value;
 
 import com.example.tikitihub.security.JwtAuthenticationFilter;
 import com.example.tikitihub.service.CustomUserDetailsService;
@@ -47,41 +47,72 @@ public class SecurityConfig {
             .sessionManagement(session ->
                     session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                    .requestMatchers("/api/auth/**", "/api/events/**").permitAll()
+
+                    // ---------- Fully public ----------
                     .requestMatchers("/error").permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/tickets/**").permitAll()
-                    .requestMatchers(HttpMethod.GET, "/api/bookings/**").permitAll()
+                    .requestMatchers("/api/auth/**").permitAll()
+                    .requestMatchers("/api/events/**").permitAll()
                     .requestMatchers("/api/payments/mpesa-callback").permitAll()
-                    .requestMatchers(HttpMethod.POST, "/api/bookings/**").hasAnyAuthority("ROLE_USER", "ROLE_CUSTOMER", "ROLE_AGENT", "ROLE_ADMIN", "USER", "AGENT", "ADMIN")
-                    .requestMatchers(HttpMethod.POST, "/api/tickets/**").hasAnyAuthority("ROLE_AGENT", "ROLE_ADMIN")
+
+                    // ---------- Public read-only ticket catalog ----------
+                    // Exact path only — no wildcards
+                    .requestMatchers(HttpMethod.GET, "/api/tickets").permitAll()
+                    // Numeric ID only — blocks /my-listings and /my-events
+                    .requestMatchers(HttpMethod.GET, "/api/tickets/{id:[0-9]+}").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/api/tickets/{id:[0-9]+}/tiers").permitAll()
+
+                    // ---------- Organizer-only ticket endpoints ----------
+                    .requestMatchers(HttpMethod.GET, "/api/tickets/my-listings")
+                            .hasAnyAuthority("ROLE_AGENT", "ROLE_ADMIN")
+                    .requestMatchers(HttpMethod.GET, "/api/tickets/my-events")
+                            .hasAnyAuthority("ROLE_AGENT", "ROLE_ADMIN")
+                    .requestMatchers(HttpMethod.POST, "/api/tickets/**")
+                            .hasAnyAuthority("ROLE_AGENT", "ROLE_ADMIN")
+                    .requestMatchers(HttpMethod.PUT, "/api/tickets/**")
+                            .hasAnyAuthority("ROLE_AGENT", "ROLE_ADMIN")
+                    .requestMatchers(HttpMethod.DELETE, "/api/tickets/**")
+                            .hasAnyAuthority("ROLE_AGENT", "ROLE_ADMIN")
+
+                    // ---------- Bookings — authenticated user only ----------
+                    .requestMatchers(HttpMethod.GET, "/api/bookings/**").authenticated()
+                    .requestMatchers(HttpMethod.POST, "/api/bookings/redeem")
+                            .hasAnyAuthority("ROLE_AGENT", "ROLE_ADMIN")
+                    .requestMatchers(HttpMethod.POST, "/api/bookings/**").authenticated()
+
+                    // ---------- Payments — authenticated user only ----------
+                    .requestMatchers(HttpMethod.POST, "/api/payments/stk-push").authenticated()
+
+                    // ---------- Anything else requires authentication ----------
                     .anyRequest().authenticated()
             )
+            .exceptionHandling(ex -> ex
+                    .authenticationEntryPoint((req, res, authEx) -> {
+                        res.setStatus(401);
+                        res.setContentType("application/json");
+                        res.getWriter().write("{\"error\":\"Unauthorized — missing or invalid token\"}");
+                    })
+                    .accessDeniedHandler((req, res, accessEx) -> {
+                        res.setStatus(403);
+                        res.setContentType("application/json");
+                        res.getWriter().write("{\"error\":\"Forbidden — insufficient permissions\"}");
+                    })
+            )
             .authenticationProvider(authenticationProvider())
-            .addFilterBefore(jwtAuthFilter,
-                    UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
-    return http.build();
+        return http.build();
     }
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-
         CorsConfiguration configuration = new CorsConfiguration();
-
-        configuration.setAllowedOrigins(allowedOrigins);
-
-        configuration.setAllowedMethods(
-                List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-
+        configuration.setAllowedOriginPatterns(allowedOrigins);
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("*"));
-
         configuration.setAllowCredentials(true);
 
-        UrlBasedCorsConfigurationSource source =
-                new UrlBasedCorsConfigurationSource();
-
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
-
         return source;
     }
 
