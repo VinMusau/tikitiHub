@@ -1,5 +1,6 @@
 package com.example.tikitihub.service;
 
+import com.example.tikitihub.config.JwtProperties;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
@@ -17,7 +18,12 @@ import java.util.function.Function;
 
 @Service
 public class JwtService {
-    private static final String SECRET_KEY = "NDVBNkU3QzlFM0YxQTJCN0M0RDVFNkY3QTg5QjBDMUUyRjNHNEg1SjZLN0w4TTlOMA==";
+
+    private final JwtProperties jwtProperties;
+
+    public JwtService(JwtProperties jwtProperties) {
+        this.jwtProperties = jwtProperties;
+    }
 
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
@@ -30,12 +36,12 @@ public class JwtService {
 
     public String generateToken(UserDetails userDetails) {
         Map<String, Object> claims = new HashMap<>();
-        
+
         List<String> roles = userDetails.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .map(role -> role.replace("ROLE_", "")) 
+                .map(role -> role.replace("ROLE_", ""))
                 .toList();
-                
+
         claims.put("roles", roles);
         return generateToken(claims, userDetails.getUsername());
     }
@@ -45,8 +51,7 @@ public class JwtService {
                 .claims(extraClaims)
                 .subject(username)
                 .issuedAt(new Date(System.currentTimeMillis()))
-                // Token expires in 24 hours
-                .expiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24)) 
+                .expiration(new Date(System.currentTimeMillis() + jwtProperties.getExpirationMs()))
                 .signWith(getSignInKey(), Jwts.SIG.HS256)
                 .compact();
     }
@@ -73,7 +78,7 @@ public class JwtService {
     }
 
     private SecretKey getSignInKey() {
-        byte[] keyBytes = Decoders.BASE64.decode(SECRET_KEY);
+        byte[] keyBytes = Decoders.BASE64.decode(jwtProperties.getSecret());
         return Keys.hmacShaKeyFor(keyBytes);
     }
 }
