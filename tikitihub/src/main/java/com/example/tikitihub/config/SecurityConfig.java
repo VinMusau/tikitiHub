@@ -81,6 +81,7 @@ public class SecurityConfig {
 
                     // ---------- Payments — authenticated user only ----------
                     .requestMatchers(HttpMethod.POST, "/api/payments/stk-push").authenticated()
+                    .requestMatchers("/api/users/**").denyAll()
 
                     // ---------- Anything else requires authentication ----------
                     .anyRequest().authenticated()
