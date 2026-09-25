@@ -3,9 +3,11 @@ package com.example.tikitihub.controller;
 import java.math.BigDecimal;
 import java.util.Map;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,8 +24,6 @@ import com.example.tikitihub.repository.UserRepository;
 import com.example.tikitihub.service.MpesaService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
-import jakarta.transaction.Transactional;
 
 @RestController
 @RequestMapping("/api/payments")
@@ -64,12 +64,12 @@ public class PaymentController {
 
         Ticket ticketListing = ticketRepository.findById(Long.parseLong(ticketId))
             .orElseThrow(() -> new RuntimeException("Target event ticket package listing not found"));
-        
+
         Map<String, String> mpesaResponse = mpesaService.initiateStkPush(phone, amount, "TicketRef-" + ticketId);
 
         if (mpesaResponse != null && "0".equals(mpesaResponse.get("ResponseCode"))){
             Transaction pendingTransaction = new Transaction();
-            pendingTransaction.setCheckoutRequestID(mpesaResponse.get("CheckoutRequestID")); 
+            pendingTransaction.setCheckoutRequestID(mpesaResponse.get("CheckoutRequestID"));
             pendingTransaction.setCustomer(buyer);
             pendingTransaction.setTicketListing(ticketListing);
             pendingTransaction.setQuantity(quantity);
@@ -85,63 +85,89 @@ public class PaymentController {
     }
 
     @PostMapping("/mpesa-callback")
-    @Transactional 
+    @Transactional
     public ResponseEntity<?> handleMpesaCallback(@RequestBody String callbackPayload) {
+        String checkoutId = null;
+
         try {
             JsonNode jsonNode = objectMapper.readTree(callbackPayload);
             JsonNode stkCallback = jsonNode.path("Body").path("stkCallback");
-            
-            String checkoutId = stkCallback.path("CheckoutRequestID").asText();
+
+            final String cid = stkCallback.path("CheckoutRequestID").asText();
+            checkoutId = cid;
             int resultCode = stkCallback.path("ResultCode").asInt();
 
-            Transaction transaction = transactionRepository.findByCheckoutRequestID(checkoutId)
-                .orElseThrow(() -> new RuntimeException("Transaction trace not found for CheckoutRequestID: " + checkoutId));
+            Transaction transaction = transactionRepository.findByCheckoutRequestID(cid)
+                    .orElseThrow(() -> new RuntimeException("Transaction not found for CheckoutRequestID: " + cid));
 
-            if (resultCode == 0) {
-                JsonNode callbackMetadata = stkCallback.path("CallbackMetadata").path("Item");
-                String mpesaReceipt = "";
-                
-                for (JsonNode item : callbackMetadata) {
-                    if ("MpesaReceiptNumber".equals(item.path("Name").asText())) {
-                        mpesaReceipt = item.path("Value").asText();
-                        break;
-                    }
+            // Safaricom retries callbacks. If we've already finalized this transaction, do nothing.
+            if ("COMPLETED".equals(transaction.getStatus())
+                    || "FAILED".equals(transaction.getStatus())
+                    || "OVERSOLD".equals(transaction.getStatus())) {
+                System.out.println("Duplicate callback ignored for " + checkoutId
+                        + " (already " + transaction.getStatus() + ")");
+                return ResponseEntity.ok(Map.of("ResultCode", 0, "ResultDesc", "Already processed"));
+            }
+
+            // ---------- Failed payment ----------
+            if (resultCode != 0) {
+                transaction.setStatus("FAILED");
+                transactionRepository.save(transaction);
+                System.out.println("Payment failed/aborted for " + checkoutId);
+                return ResponseEntity.ok(Map.of("ResultCode", 0, "ResultDesc", "Accept Success"));
+            }
+
+            // ---------- Successful payment ----------
+            String mpesaReceipt = "";
+            for (JsonNode item : stkCallback.path("CallbackMetadata").path("Item")) {
+                if ("MpesaReceiptNumber".equals(item.path("Name").asText())) {
+                    mpesaReceipt = item.path("Value").asText();
+                    break;
                 }
-                
-                transaction.setStatus("COMPLETED");
+            }
+
+            Ticket eventListing = transaction.getTicketListing();
+            int qty = transaction.getQuantity();
+
+            int updated = ticketRepository.decrementIfAvailable(eventListing.getId(), qty);
+
+            if (updated == 0) {
+                // Oversold: customer paid but stock ran out. Requires manual refund.
+                transaction.setStatus("OVERSOLD");
                 transaction.setMpesaReceiptNumber(mpesaReceipt);
                 transactionRepository.save(transaction);
 
-                Ticket eventListing = transaction.getTicketListing();
-                int inventoryDeficit = eventListing.getRemainingQuantity() - transaction.getQuantity();
-                
-                if (inventoryDeficit < 0) {
-                    System.err.println("CRITICAL: Event stock oversold for transaction " + checkoutId);
-                } else {
-                    eventListing.setRemainingQuantity(inventoryDeficit);
-                    ticketRepository.save(eventListing);
+                System.err.println("CRITICAL: Oversold for transaction " + checkoutId
+                        + " — customer " + transaction.getCustomer().getEmail()
+                        + " paid receipt " + mpesaReceipt + ". Manual refund required.");
 
-                    Booking booking = new Booking();
-                    booking.setBuyer(transaction.getCustomer());
-                    booking.setEventTicket(eventListing);
-                    booking.setQuantity(transaction.getQuantity());
-                    
-                    bookingRepository.save(booking);
-
-                    System.out.println("TikitiHub Success: Ticket stock updated. Receipt: " + mpesaReceipt);
-                }
-                
-            } else {
-                transaction.setStatus("FAILED");
-                transactionRepository.save(transaction);
-                System.out.println("Payment failed or aborted for checkout profile reference: " + checkoutId);
+                // Return 200 so Safaricom stops retrying — refund is handled out-of-band.
+                return ResponseEntity.ok(Map.of("ResultCode", 0, "ResultDesc", "Accept Success"));
             }
 
+            transaction.setStatus("COMPLETED");
+            transaction.setMpesaReceiptNumber(mpesaReceipt);
+            transactionRepository.save(transaction);
+
+            Booking booking = new Booking();
+            booking.setBuyer(transaction.getCustomer());
+            booking.setEventTicket(eventListing);
+            booking.setQuantity(qty);
+            bookingRepository.save(booking);
+
+            System.out.println("TikitiHub success: receipt " + mpesaReceipt + " for booking " + booking.getId());
+
         } catch (Exception e) {
-            System.err.println("Failed parsing callback structure payload: " + e.getMessage());
+            // Full trace so the failure is visible in the console
+            System.err.println("M-Pesa callback processing failed for CheckoutRequestID=" + checkoutId);
+            e.printStackTrace();
+
+            // Return 500 so Safaricom retries. @Transactional rolls back — the transaction
+            // stays PENDING and will be processed on the retry.
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("ResultCode", 1, "ResultDesc", "Processing failed — please retry"));
         }
 
-        // Always return a clean 200 OK back to Safaricom so they stop retrying the hook
         return ResponseEntity.ok(Map.of("ResultCode", 0, "ResultDesc", "Accept Success"));
     }
 }
