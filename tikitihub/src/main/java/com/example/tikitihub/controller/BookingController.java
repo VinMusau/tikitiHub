@@ -12,12 +12,14 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.tikitihub.dto.BookingResponse;
 import com.example.tikitihub.model.Booking;
 import com.example.tikitihub.model.Ticket;
 import com.example.tikitihub.model.TicketTier;
@@ -37,9 +39,9 @@ public class BookingController {
     private final TicketTierRepository ticketTierRepository;
 
     public BookingController(
-            BookingRepository bookingRepository, 
-            TicketRepository ticketRepository, 
-            UserRepository userRepository, 
+            BookingRepository bookingRepository,
+            TicketRepository ticketRepository,
+            UserRepository userRepository,
             TicketTierRepository ticketTierRepository
     ) {
         this.bookingRepository = bookingRepository;
@@ -59,46 +61,59 @@ public class BookingController {
         public void setEventId(Long eventId) { this.eventId = eventId; }
     }
 
-    // PURCHASE a ticket 
+    // PURCHASE a ticket
     @PostMapping
+    @Transactional
     public ResponseEntity<?> purchaseTicket(@RequestBody Booking booking) {
+
         if (booking.getTicketTier() == null || booking.getTicketTier().getId() == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "Ticket tier ID is required"));
         }
 
-        TicketTier tier = ticketTierRepository.findById(booking.getTicketTier().getId())
+        Integer qty = booking.getQuantity();
+        if (qty == null || qty <= 0) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Quantity must be at least 1"));
+        }
+        if (qty > 100) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Cannot purchase more than 100 tickets per order"));
+        }
+
+        Long tierId = booking.getTicketTier().getId();
+
+        TicketTier tier = ticketTierRepository.findById(tierId)
                 .orElseThrow(() -> new RuntimeException("Ticket tier not found"));
 
-        if (tier.getRemainingQuantity() < booking.getQuantity()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Not enough " + tier.getName() + " tickets left!"));
+        int tierUpdated = ticketTierRepository.decrementIfAvailable(tierId, qty);
+
+        if (tierUpdated == 0) {
+            int remaining = ticketTierRepository.findById(tierId)
+                    .map(TicketTier::getRemainingQuantity)
+                    .orElse(0);
+            return ResponseEntity.badRequest().body(Map.of(
+                    "error", "Not enough " + tier.getName() + " tickets left! Only " + remaining + " remaining."
+            ));
+        }
+
+        Ticket ticket = tier.getTicket();
+        if (ticket != null) {
+            ticketRepository.decrementIfAvailable(ticket.getId(), qty);
         }
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentPrincipalEmail = authentication.getName();
-
         User dbUser = userRepository.findByEmail(currentPrincipalEmail)
                 .orElseThrow(() -> new RuntimeException("Buyer account profile not found"));
 
-        // Deduct quantity from the specific tier
-        tier.setRemainingQuantity(tier.getRemainingQuantity() - booking.getQuantity());
-        ticketTierRepository.save(tier);
-
-        // Deduct from the parent ticket so dashboard metrics stay in sync
-        Ticket ticket = tier.getTicket();
-        if (ticket != null && ticket.getRemainingQuantity() != null) {
-            ticket.setRemainingQuantity(Math.max(0, ticket.getRemainingQuantity() - booking.getQuantity()));
-            ticketRepository.save(ticket);
-        }
-
         booking.setBuyer(dbUser);
-        booking.setEventTicket(tier.getTicket()); // Set event reference
-        booking.setTicketTier(tier);              // Set tier reference
+        booking.setEventTicket(ticket);
+        booking.setTicketTier(tier);
 
         Booking savedBooking = bookingRepository.save(booking);
-        return new ResponseEntity<>(savedBooking, HttpStatus.CREATED);
+
+        // Build DTO while session is still open — this is what fixes the LazyInitializationException
+        return new ResponseEntity<>(BookingResponse.from(savedBooking), HttpStatus.CREATED);
     }
 
-    // REDEEM a ticket (Scoped to Event)
     @PostMapping("/redeem")
     public ResponseEntity<?> redeemTicket(@RequestBody GateScanRequest request) {
         if (request.getQrRedemptionToken() == null || request.getEventId() == null) {
@@ -132,12 +147,17 @@ public class BookingController {
     }
 
     @GetMapping("/my-bookings")
-    public ResponseEntity<List<Booking>> getMyBookings() {
+    public ResponseEntity<List<BookingResponse>> getMyBookings() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentPrincipalEmail = authentication.getName();
 
         List<Booking> userBookings = bookingRepository.findByBuyerEmail(currentPrincipalEmail);
-        return ResponseEntity.ok(userBookings);
+
+        List<BookingResponse> response = userBookings.stream()
+                .map(BookingResponse::from)
+                .toList();
+
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -152,7 +172,6 @@ public class BookingController {
 
         List<Booking> allBookings = bookingRepository.findByEventTicketOrganizer(organizer);
 
-        // Group by event
         Map<Long, Map<String, Object>> eventMap = new HashMap<>();
 
         for (Booking b : allBookings) {
@@ -187,7 +206,6 @@ public class BookingController {
             eventEntry.put("totalSold", (int) eventEntry.get("totalSold") + qty);
             eventEntry.put("totalRevenue", (double) eventEntry.get("totalRevenue") + (qty * tierPrice));
 
-            // Tier breakdown
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> tiers = (List<Map<String, Object>>) eventEntry.get("tiers");
             final Long finalTierId = tierId;
