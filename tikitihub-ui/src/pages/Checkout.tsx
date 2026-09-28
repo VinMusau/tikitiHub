@@ -95,8 +95,13 @@ export default function Checkout() {
   const handleCheckout = async () => {
     const targetItem = items[0];
 
-    if (paymentMethod !== "mpesa") {
-      return; // credit card not implemented yet
+    if (paymentMethod !== "mpesa") return;
+
+    if (!targetItem.tier) {
+      usePaymentStore.setState({
+        error: "Please select a tier for this event before checking out.",
+      });
+      return;
     }
 
     const formattedPhone = formatMpesaNumber(mpesaPhone);
@@ -112,15 +117,14 @@ export default function Checkout() {
 
     const isTriggered = await initiateMpesaPush(
       formattedPhone,
-      finalTotal,
-      targetItem.event.id,
+      targetItem.tier.id,
       targetItem.quantity,
     );
 
     if (isTriggered) {
       useCartStore
         .getState()
-        .removeItem(targetItem.event.id, targetItem.tier?.id);
+        .removeItem(targetItem.event.id, targetItem.tier.id);
     }
   };
 

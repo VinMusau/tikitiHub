@@ -16,12 +16,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.example.tikitihub.dto.TicketResponse;
 import com.example.tikitihub.model.Ticket;
 import com.example.tikitihub.model.TicketTier;
 import com.example.tikitihub.model.User;
 import com.example.tikitihub.repository.TicketRepository;
 import com.example.tikitihub.repository.TicketTierRepository;
 import com.example.tikitihub.repository.UserRepository;
+
+import com.example.tikitihub.exception.UnauthorizedException;
 
 @RestController
 @RequestMapping("/api/tickets")
@@ -38,9 +41,9 @@ public class TicketController {
 
     // CREATE an event ticket listing 
     @PostMapping
-    public ResponseEntity<?> createTicket(
-            @RequestBody Ticket ticket, 
-            @AuthenticationPrincipal UserDetails userDetails) {
+    public ResponseEntity<TicketResponse> createTicket(
+        @RequestBody Ticket ticket,
+        @AuthenticationPrincipal UserDetails userDetails) {
         
         String email = userDetails.getUsername();
         User organizer = userRepository.findByEmail(email)
@@ -63,12 +66,11 @@ public class TicketController {
             savedTicket.setTiers(ticketTierRepository.findByTicketId(savedTicket.getId()));
         }
 
-        return new ResponseEntity<>(savedTicket, HttpStatus.CREATED);
+        return new ResponseEntity<>(TicketResponse.from(savedTicket), HttpStatus.CREATED);
     }
 
-    // GET ALL available event tickets
     @GetMapping
-    public ResponseEntity<List<Ticket>> getAllTickets() {
+    public ResponseEntity<List<TicketResponse>> getAllTickets() {
         java.time.LocalDateTime now = java.time.LocalDateTime.now();
 
         List<Ticket> upcomingTickets = ticketRepository.findByEventDateAfterOrderByEventDateAsc(now);
@@ -80,12 +82,11 @@ public class TicketController {
                 }
             }
         }
-        return ResponseEntity.ok(upcomingTickets);
+        return ResponseEntity.ok(upcomingTickets.stream().map(TicketResponse::from).toList());
     }
 
-    // GET a single event ticket by ID
     @GetMapping("/{id}")
-    public ResponseEntity<Ticket> getTicketById(@PathVariable Long id) {
+    public ResponseEntity<TicketResponse> getTicketById(@PathVariable Long id) {
         return ticketRepository.findById(id)
                 .map(ticket -> {
                     if (ticket.getTiers() == null || ticket.getTiers().isEmpty()) {
@@ -94,7 +95,7 @@ public class TicketController {
                             ticket.setTiers(tiers);
                         }
                     }
-                    return ResponseEntity.ok(ticket);
+                    return ResponseEntity.ok(TicketResponse.from(ticket));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -107,11 +108,11 @@ public class TicketController {
 
     // Get only the tickets managed by the authenticated agent via /my-listings
     @GetMapping("/my-listings")
-    public ResponseEntity<List<Ticket>> getMyListings(@AuthenticationPrincipal UserDetails userDetails) {
+    public ResponseEntity<List<TicketResponse>> getMyListings(@AuthenticationPrincipal UserDetails userDetails) {
         String email = userDetails.getUsername();
         User organizer = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Organizer not found"));
-                
+                .orElseThrow(() -> new UnauthorizedException("Organizer not found"));
+
         List<Ticket> tickets = ticketRepository.findByOrganizer(organizer);
         for (Ticket t : tickets) {
             if (t.getTiers() == null || t.getTiers().isEmpty()) {
@@ -121,12 +122,12 @@ public class TicketController {
                 }
             }
         }
-        return ResponseEntity.ok(tickets);
+        return ResponseEntity.ok(tickets.stream().map(TicketResponse::from).toList());
     }
 
     // UPDATE event ticket details
     @PutMapping("/{id}")
-    public ResponseEntity<Ticket> updateTicket(@PathVariable Long id, @RequestBody Ticket updatedTicket) {
+    public ResponseEntity<TicketResponse> updateTicket(@PathVariable Long id, @RequestBody Ticket updatedTicket) {
         return ticketRepository.findById(id)
                 .map(ticket -> {
                     ticket.setEventName(updatedTicket.getEventName());
@@ -149,18 +150,17 @@ public class TicketController {
                         ticket.setTiers(ticketTierRepository.findByTicketId(ticket.getId()));
                     }
 
-                    return ResponseEntity.ok(ticketRepository.save(ticket));
+                    return ResponseEntity.ok(TicketResponse.from(ticketRepository.save(ticket)));
                 })
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    // Get only the tickets managed by the authenticated agent via /my-events
     @GetMapping("/my-events")
-    public ResponseEntity<?> getMyEvents(@AuthenticationPrincipal UserDetails userDetails) { // 🔄 Renamed to getMyEvents
+    public ResponseEntity<List<TicketResponse>> getMyEvents(@AuthenticationPrincipal UserDetails userDetails) {
         String currentPrincipalEmail = userDetails.getUsername();
-        
+
         User organizer = userRepository.findByEmail(currentPrincipalEmail)
-                .orElseThrow(() -> new RuntimeException("Organizer not found"));
+                .orElseThrow(() -> new UnauthorizedException("Organizer not found"));
 
         List<Ticket> organizerEvents = ticketRepository.findByOrganizer(organizer);
         for (Ticket t : organizerEvents) {
@@ -171,7 +171,7 @@ public class TicketController {
                 }
             }
         }
-        return ResponseEntity.ok(organizerEvents);
+        return ResponseEntity.ok(organizerEvents.stream().map(TicketResponse::from).toList());
     }
 
     // DELETE an event ticket listing

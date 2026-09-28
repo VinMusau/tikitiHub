@@ -2,17 +2,31 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useEventStore } from '../stores/eventStore';
 import { useAuthStore } from '../stores/authStore';
 import { useBookingStore } from '../stores/useBookingStore';
-import { 
-  Plus, Calendar, MapPin, DollarSign, Users, 
-  X, Briefcase, BarChart3, CheckCircle2, Image as ImageIcon, 
+import {
+  Plus, Calendar, MapPin, DollarSign, Users,
+  X, Briefcase, BarChart3, CheckCircle2, Image as ImageIcon,
   Percent, AlertCircle, RefreshCw, Layers, Camera, StopCircle, Tag, Trash2
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
+import apiClient from '../lib/client';
 
 interface TierFormData {
   name: string;
   price: string;
   totalQuantity: string;
+}
+
+interface OrganizerSalesRow {
+  eventId: number;
+  eventName: string;
+  totalSold: number;
+  totalRevenue: number;
+  tiers: Array<{
+    tierId: number | null;
+    tierName: string;
+    sold: number;
+    revenue: number;
+  }>;
 }
 
 export default function AgentDashboard() {
@@ -35,6 +49,11 @@ export default function AgentDashboard() {
   ]);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // ---------- Sales data (source of truth for revenue / sold counts) ----------
+  const [sales, setSales] = useState<OrganizerSalesRow[]>([]);
+  const [salesLoading, setSalesLoading] = useState(false);
+  const [salesError, setSalesError] = useState<string | null>(null);
+
   const handleAddTier = (presetName?: string) => {
     setTiers(prev => [
       ...prev,
@@ -56,13 +75,13 @@ export default function AgentDashboard() {
   };
 
   const computedTotalCapacity = tiers.reduce((sum, t) => sum + (parseInt(t.totalQuantity, 10) || 0), 0);
-  
+
   const validTierPrices = tiers
     .map(t => parseFloat(t.price))
     .filter(p => !isNaN(p) && p >= 0);
-  
+
   const computedStartingPrice = validTierPrices.length > 0 ? Math.min(...validTierPrices) : 0;
-  
+
   const projectedGross = tiers.reduce((sum, t) => {
     const qty = parseInt(t.totalQuantity, 10) || 0;
     const prc = parseFloat(t.price) || 0;
@@ -72,6 +91,32 @@ export default function AgentDashboard() {
   useEffect(() => {
     fetchMyListings();
   }, [fetchMyListings]);
+
+  // ---------- Fetch organizer sales (real bookings) whenever events change ----------
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSales = async () => {
+      setSalesLoading(true);
+      setSalesError(null);
+      try {
+        const res = await apiClient.get('/bookings/organizer-sales');
+        const data = res.data || res;
+        if (!cancelled) setSales(Array.isArray(data) ? data : []);
+      } catch (err: any) {
+        console.error('Failed to load organizer sales', err);
+        if (!cancelled) {
+          setSalesError(err.response?.data?.error || 'Failed to load sales data');
+        }
+      } finally {
+        if (!cancelled) setSalesLoading(false);
+      }
+    };
+
+    if (events.length >= 0) loadSales();
+
+    return () => { cancelled = true; };
+  }, [events.length]);
 
   // Set default event and tier selection on load
   useEffect(() => {
@@ -99,31 +144,29 @@ export default function AgentDashboard() {
 
   const currentSelectedEvent = events.find((e: any) => String(e.id) === String(selectedEventId));
 
-  const totalRevenue = (events || []).reduce((sum: number, e: any) => {
-    if (e.tiers && e.tiers.length > 0) {
-      return sum + e.tiers.reduce((tSum: number, t: any) => tSum + ((t.totalQuantity - (t.remainingQuantity ?? t.totalQuantity)) * t.price), 0);
-    }
-    const sold = e.totalQuantity - (e.remainingQuantity ?? e.totalQuantity);
-    return sum + (sold * e.price);
-  }, 0);
+  // ---------- Fast lookup: eventId -> sales row ----------
+  const salesByEventId = new Map<number, OrganizerSalesRow>(
+    sales.map(s => [s.eventId, s])
+  );
 
-  const totalTicketsSold = (events || []).reduce((sum: number, e: any) => {
-    if (e.tiers && e.tiers.length > 0) {
-      return sum + e.tiers.reduce((tSum: number, t: any) => tSum + (t.totalQuantity - (t.remainingQuantity ?? t.totalQuantity)), 0);
-    }
-    return sum + (e.totalQuantity - (e.remainingQuantity ?? e.totalQuantity));
-  }, 0);
+  // ---------- KPI computations (now sourced from real bookings) ----------
+  const totalRevenue = sales.reduce((sum, r) => sum + (r.totalRevenue || 0), 0);
+  const totalTicketsSold = sales.reduce((sum, r) => sum + (r.totalSold || 0), 0);
 
   const totalCapacityAllocated = (events || []).reduce((sum: number, e: any) => {
     if (e.tiers && e.tiers.length > 0) {
-      return sum + e.tiers.reduce((tSum: number, t: any) => tSum + t.totalQuantity, 0);
+      return sum + e.tiers.reduce((tSum: number, t: any) => tSum + (t.totalQuantity || 0), 0);
     }
-    return sum + e.totalQuantity;
+    return sum + (e.totalQuantity || 0);
   }, 0);
-  
-  const averageSalesPacePercentage = totalCapacityAllocated > 0 
-    ? (totalTicketsSold / totalCapacityAllocated) * 100 
+
+  const averageSalesPacePercentage = totalCapacityAllocated > 0
+    ? (totalTicketsSold / totalCapacityAllocated) * 100
     : 0;
+
+  const upcomingEventsCount = (events || []).filter(
+    (e: any) => e.eventDate && new Date(e.eventDate) > new Date()
+  ).length;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,12 +205,12 @@ export default function AgentDashboard() {
         remainingQuantity: parseInt(t.totalQuantity, 10)
       }));
 
-      const finalTotalCapacity = computedTotalCapacity > 0 
-        ? computedTotalCapacity 
+      const finalTotalCapacity = computedTotalCapacity > 0
+        ? computedTotalCapacity
         : (parseInt(formData.totalQuantity, 10) || 0);
 
-      const finalPrice = computedStartingPrice > 0 
-        ? computedStartingPrice 
+      const finalPrice = computedStartingPrice > 0
+        ? computedStartingPrice
         : (parseFloat(formData.price) || 0);
 
       await createEvent({
@@ -179,12 +222,12 @@ export default function AgentDashboard() {
         eventDate: new Date(formData.eventDate).toISOString().split('.')[0],
         tiers: formattedTiers
       });
-      
+
       setShowCreateForm(false);
       setFormData({ eventName: '', description: '', venue: '', eventDate: '', price: '', totalQuantity: '', imageUrl: '' });
       setTiers([{ name: 'Regular', price: '', totalQuantity: '' }]);
       setFormError(null);
-      fetchMyListings(); 
+      fetchMyListings();
       setActiveTab('events');
     } catch (err: any) {
       console.error("Submission failed.", err);
@@ -196,7 +239,7 @@ export default function AgentDashboard() {
   const [scanToken, setScanToken] = useState('');
   const [scanStatus, setScanStatus] = useState<{ success: boolean; message: string } | null>(null);
   const [scanLoading, setScanLoading] = useState(false);
-  const [recentScans, setRecentScans] = useState<Array<{token: string, time: string, success: boolean, tier?: string}>>([]);
+  const [recentScans, setRecentScans] = useState<Array<{ token: string, time: string, success: boolean, tier?: string }>>([]);
 
   const [isCameraActive, setIsCameraActive] = useState(false);
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
@@ -233,7 +276,6 @@ export default function AgentDashboard() {
     setScanLoading(true);
     setScanStatus(null);
 
-    // DTO Payload passing both eventId and tierId (if applicable)
     const payload: { qrRedemptionToken: string; eventId: number; ticketTierId?: number } = {
       qrRedemptionToken: targetToken,
       eventId: Number(selectedEventId)
@@ -244,31 +286,31 @@ export default function AgentDashboard() {
     }
 
     const result = await redeemTicketGateScan(payload);
-    
+
     setScanStatus(result);
     setScanLoading(false);
-    
+
     const activeTierName = currentSelectedEvent?.tiers?.find((t: any) => String(t.id) === String(selectedTierId))?.name;
 
     setRecentScans(prev => [
       { token: targetToken, time: new Date().toLocaleTimeString(), success: result.success, tier: activeTierName },
       ...prev.slice(0, 4)
     ]);
-    
+
     setScanToken('');
   };
 
   const startCameraEngine = async () => {
     setIsCameraActive(true);
     setScanStatus(null);
-    
+
     setTimeout(async () => {
       try {
         const html5QrCode = new Html5Qrcode(SCANNER_ID);
         html5QrCodeRef.current = html5QrCode;
 
         await html5QrCode.start(
-          { facingMode: "environment" }, 
+          { facingMode: "environment" },
           {
             fps: 10,
             qrbox: (width, height) => {
@@ -277,12 +319,12 @@ export default function AgentDashboard() {
             }
           },
           async (decodedText) => {
-            await html5QrCode.stop(); 
+            await html5QrCode.stop();
             setIsCameraActive(false);
-            
+
             handleScanSubmit(decodedText);
           },
-          () => {}
+          () => { }
         );
       } catch (err) {
         console.error("Camera permissions denied or device missing:", err);
@@ -347,6 +389,11 @@ export default function AgentDashboard() {
       </div>
 
       {error && <div className="p-4 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs">{error}</div>}
+      {salesError && (
+        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-700 rounded-xl text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" /> Sales data could not be loaded: {salesError}
+        </div>
+      )}
 
       {showCreateForm ? (
         <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-xs space-y-6">
@@ -373,19 +420,19 @@ export default function AgentDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Event Title *</label>
-                <input required type="text" placeholder="e.g. Nairobi Summer Beats" value={formData.eventName} onChange={e => setFormData({...formData, eventName: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:border-purple-500 focus:outline-none" />
+                <input required type="text" placeholder="e.g. Nairobi Summer Beats" value={formData.eventName} onChange={e => setFormData({ ...formData, eventName: e.target.value })} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:border-purple-500 focus:outline-none" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Venue Address Location *</label>
-                <input required type="text" placeholder="e.g. Alchemist Arena, Westlands" value={formData.venue} onChange={e => setFormData({...formData, venue: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:border-purple-500 focus:outline-none" />
+                <input required type="text" placeholder="e.g. Alchemist Arena, Westlands" value={formData.venue} onChange={e => setFormData({ ...formData, venue: e.target.value })} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:border-purple-500 focus:outline-none" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Schedule Date & Time *</label>
-                <input required type="datetime-local" value={formData.eventDate} onChange={e => setFormData({...formData, eventDate: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm text-slate-600 focus:border-purple-500 focus:outline-none" />
+                <input required type="datetime-local" value={formData.eventDate} onChange={e => setFormData({ ...formData, eventDate: e.target.value })} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm text-slate-600 focus:border-purple-500 focus:outline-none" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Event Banner Image URL</label>
-                <input type="url" placeholder="https://images.unsplash.com/..." value={formData.imageUrl} onChange={e => setFormData({...formData, imageUrl: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:border-purple-500 focus:outline-none" />
+                <input type="url" placeholder="https://images.unsplash.com/..." value={formData.imageUrl} onChange={e => setFormData({ ...formData, imageUrl: e.target.value })} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:border-purple-500 focus:outline-none" />
               </div>
 
               {/* Ticket Tiers & Allocation Builder */}
@@ -404,7 +451,7 @@ export default function AgentDashboard() {
                       Define ticket classes (e.g. Regular, VIP) with specific prices and quotas matching backend inventory.
                     </p>
                   </div>
-                  
+
                   <button
                     type="button"
                     onClick={() => handleAddTier()}
@@ -426,7 +473,7 @@ export default function AgentDashboard() {
                         disabled={alreadyExists}
                         onClick={() => handleAddTier(preset)}
                         className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold transition-all cursor-pointer ${
-                          alreadyExists 
+                          alreadyExists
                             ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                             : 'bg-white hover:bg-purple-50 text-slate-600 hover:text-purple-700 border-slate-200 hover:border-purple-300 shadow-2xs'
                         }`}
@@ -440,8 +487,8 @@ export default function AgentDashboard() {
                 {/* Tier Input Rows */}
                 <div className="space-y-2.5">
                   {tiers.map((tier, index) => (
-                    <div 
-                      key={index} 
+                    <div
+                      key={index}
                       className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center gap-3 transition-all hover:border-slate-300"
                     >
                       <div className="flex-1 w-full sm:w-auto">
@@ -528,7 +575,7 @@ export default function AgentDashboard() {
 
               <div className="md:col-span-2">
                 <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Public Summary Info Description *</label>
-                <textarea required rows={3} placeholder="Provide specific instructions regarding gates openings, age limits..." value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:border-purple-500 focus:outline-none" />
+                <textarea required rows={3} placeholder="Provide specific instructions regarding gates openings, age limits..." value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm focus:border-purple-500 focus:outline-none" />
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
@@ -546,6 +593,9 @@ export default function AgentDashboard() {
                 <DollarSign className="w-4 h-4 text-purple-500" />
               </div>
               <span className="text-xl sm:text-2xl font-black text-slate-900">Kes {totalRevenue.toFixed(2)}</span>
+              <span className="text-[10px] text-slate-400 block mt-1">
+                {salesLoading ? 'Refreshing…' : 'From confirmed bookings'}
+              </span>
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs">
               <div className="flex justify-between items-center text-slate-400 mb-2">
@@ -560,19 +610,28 @@ export default function AgentDashboard() {
                 <Percent className="w-4 h-4 text-emerald-500" />
               </div>
               <span className="text-xl sm:text-2xl font-black text-slate-900">{averageSalesPacePercentage.toFixed(1)}%</span>
+              <span className="text-[10px] text-slate-400 block mt-1">
+                {totalTicketsSold} / {totalCapacityAllocated} capacity
+              </span>
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-2xs">
               <div className="flex justify-between items-center text-slate-400 mb-2">
-                <span className="text-[10px] uppercase font-extrabold tracking-wider">Hosted Inventory</span>
+                <span className="text-[10px] uppercase font-extrabold tracking-wider">Upcoming Events</span>
                 <Layers className="w-4 h-4 text-blue-500" />
               </div>
-              <span className="text-xl sm:text-2xl font-black text-slate-900">{(events || []).length} active</span>
+              <span className="text-xl sm:text-2xl font-black text-slate-900">{upcomingEventsCount} active</span>
+              <span className="text-[10px] text-slate-400 block mt-1">
+                {(events || []).length} total listings
+              </span>
             </div>
           </div>
 
           <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-2xs">
             <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
               <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider">Event Breakdown Ledger</h3>
+              <span className="text-[10px] text-slate-400 font-medium">
+                Revenue sourced from confirmed bookings
+              </span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
@@ -586,18 +645,17 @@ export default function AgentDashboard() {
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                   {(events || []).map((e: any) => {
+                    const s = salesByEventId.get(e.id);
                     const hasTiers = e.tiers && e.tiers.length > 0;
-                    const sold = hasTiers 
-                      ? e.tiers.reduce((s: number, t: any) => s + (t.totalQuantity - (t.remainingQuantity ?? t.totalQuantity)), 0)
-                      : e.totalQuantity - (e.remainingQuantity ?? e.totalQuantity);
-                    
-                    const capacity = hasTiers 
-                      ? e.tiers.reduce((s: number, t: any) => s + t.totalQuantity, 0)
-                      : e.totalQuantity;
 
-                    const gross = hasTiers
-                      ? e.tiers.reduce((s: number, t: any) => s + ((t.totalQuantity - (t.remainingQuantity ?? t.totalQuantity)) * t.price), 0)
-                      : sold * e.price;
+                    const sold = s?.totalSold ?? 0;
+                    const gross = s?.totalRevenue ?? 0;
+
+                    const capacity = hasTiers
+                      ? e.tiers.reduce((sum: number, t: any) => sum + (t.totalQuantity || 0), 0)
+                      : (e.totalQuantity || 0);
+
+                    const isSoldOut = capacity > 0 && sold >= capacity;
 
                     return (
                       <tr key={e.id} className="hover:bg-slate-50/50">
@@ -617,6 +675,11 @@ export default function AgentDashboard() {
                         </td>
                         <td className="p-4 font-mono">
                           {sold} / {capacity} units
+                          {isSoldOut && (
+                            <span className="ml-2 text-[9px] uppercase font-bold text-rose-600 bg-rose-50 border border-rose-100 px-1.5 py-0.5 rounded">
+                              Sold out
+                            </span>
+                          )}
                         </td>
                         <td className="p-4 font-black text-slate-900">Kes {gross.toFixed(2)}</td>
                       </tr>
@@ -639,7 +702,8 @@ export default function AgentDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {(events || []).map((event: any) => {
                 const hasTiers = event.tiers && event.tiers.length > 0;
-                
+                const eventSales = salesByEventId.get(event.id);
+
                 return (
                   <div key={event.id} className="bg-white border border-slate-200/80 rounded-3xl overflow-hidden shadow-2xs flex flex-col justify-between group hover:border-slate-300 transition-all">
                     <div>
@@ -668,8 +732,13 @@ export default function AgentDashboard() {
                             </span>
                             <div className="space-y-1.5">
                               {event.tiers.map((tier: any) => {
-                                const tierSold = tier.totalQuantity - (tier.remainingQuantity ?? tier.totalQuantity);
-                                const tierPct = tier.totalQuantity > 0 ? (tierSold / tier.totalQuantity) * 100 : 0;
+                                const tierSales = eventSales?.tiers.find(st => st.tierId === tier.id);
+                                const total = tier.totalQuantity || 0;
+                                const sold = tierSales?.sold ?? (total - (tier.remainingQuantity ?? total));
+                                const remaining = tier.remainingQuantity ?? Math.max(0, total - sold);
+                                const pct = total > 0 ? (sold / total) * 100 : 0;
+                                const isSoldOut = remaining <= 0;
+
                                 return (
                                   <div key={tier.id} className="bg-slate-50 p-2 rounded-xl text-xs flex justify-between items-center border border-slate-100">
                                     <div>
@@ -677,10 +746,18 @@ export default function AgentDashboard() {
                                       <span className="text-[10px] text-slate-400 block">Kes {tier.price}</span>
                                     </div>
                                     <div className="text-right">
-                                      <span className="font-mono font-bold text-slate-700">{tierSold}/{tier.totalQuantity}</span>
+                                      <span className={`font-mono font-bold ${isSoldOut ? 'text-rose-600' : 'text-slate-700'}`}>
+                                        {sold}/{total}
+                                      </span>
                                       <div className="w-16 bg-slate-200 h-1 rounded-full mt-1 overflow-hidden">
-                                        <div className="bg-purple-600 h-full" style={{ width: `${tierPct}%` }} />
+                                        <div
+                                          className={`h-full ${isSoldOut ? 'bg-rose-500' : 'bg-purple-600'}`}
+                                          style={{ width: `${pct}%` }}
+                                        />
                                       </div>
+                                      <span className={`text-[9px] block mt-0.5 font-bold ${isSoldOut ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                        {isSoldOut ? 'SOLD OUT' : `${remaining} left`}
+                                      </span>
                                     </div>
                                   </div>
                                 );
@@ -690,8 +767,14 @@ export default function AgentDashboard() {
                         )}
 
                         <div className="grid grid-cols-2 gap-2.5 text-xs text-slate-500 border-t border-slate-100 pt-3">
-                          <span className="flex items-center gap-1.5 text-slate-600"><Calendar className="w-3.5 h-3.5 text-slate-400" /> {new Date(event.eventDate).toLocaleDateString()}</span>
-                          <span className="flex items-center gap-1.5 text-slate-600 col-span-2"><MapPin className="w-3.5 h-3.5 text-slate-400" /> {event.venue}</span>
+                          <span className="flex items-center gap-1.5 text-slate-600">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                            {new Date(event.eventDate).toLocaleDateString()}
+                          </span>
+                          <span className="flex items-center gap-1.5 text-slate-600 col-span-2">
+                            <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                            {event.venue}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -714,7 +797,6 @@ export default function AgentDashboard() {
               </p>
             </div>
 
-            {/* Event and Tier Selection Controls */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-md mx-auto text-left pt-2">
               <div>
                 <label className="block text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
@@ -793,8 +875,8 @@ export default function AgentDashboard() {
 
             {scanStatus && (
               <div className={`p-4 rounded-xl text-xs font-bold border transition-all flex items-center gap-2 justify-center ${
-                scanStatus.success 
-                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                scanStatus.success
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                   : 'bg-rose-50 border-rose-200 text-rose-800'
               }`}>
                 {scanStatus.success ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-rose-600" />}
@@ -803,16 +885,16 @@ export default function AgentDashboard() {
             )}
 
             <form onSubmit={(e) => { e.preventDefault(); handleScanSubmit(); }} className="flex gap-2 max-w-md mx-auto">
-              <input 
-                type="text" 
-                autoFocus 
-                placeholder="Scan pass token (e.g. tk_...)" 
+              <input
+                type="text"
+                autoFocus
+                placeholder="Scan pass token (e.g. tk_...)"
                 value={scanToken}
                 disabled={scanLoading}
-                onChange={e => setScanToken(e.target.value)} 
-                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-purple-500 disabled:opacity-50" 
+                onChange={e => setScanToken(e.target.value)}
+                className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:border-purple-500 disabled:opacity-50"
               />
-              <button 
+              <button
                 type="submit"
                 disabled={scanLoading || !scanToken.trim() || !selectedEventId}
                 className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white rounded-xl text-xs font-bold shadow-xs transition-colors cursor-pointer shrink-0"

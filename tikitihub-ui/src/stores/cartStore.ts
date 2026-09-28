@@ -70,26 +70,20 @@ export const useCartStore = create<CartState>((set, get) => ({
       throw new Error("You must be authenticated to buy passes.");
     }
 
-    const missingTier = items.find(item => !item.tier?.id);
-    if (missingTier) {
-      throw new Error(`Please select a tier for "${missingTier.event.eventName}" before checking out.`);
-    }
-
     try {
-      const responses = [];
-      for (const item of items) {
-        const payload = {
-          tierId: item.tier!.id,
-          quantity: item.quantity,
-        };
-        const response = await apiClient.post('/bookings', payload);
-        responses.push(response.data || response);
-      }
+      const firstItem = items[0];
+
+      const payload = {
+        tierId: firstItem.tier!.id,
+        quantity: firstItem.quantity,
+      };
+
+      const response = await apiClient.post("/bookings", payload);
+      const data = response.data || response;
 
       set({ items: [], totalPrice: 0 });
-      return responses;
+      return data;
     } catch (error: any) {
-      console.error("Checkout transaction error:", error);
       const apiError = error.response?.data;
       const message =
         apiError?.error ||
