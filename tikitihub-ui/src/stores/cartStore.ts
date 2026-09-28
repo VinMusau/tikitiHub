@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Event, TicketTier } from '../types';
 import apiClient from '../lib/client';
-import { useAuthStore } from './authStore'; 
+import { useAuthStore } from './authStore';
 
 export interface CartItem {
   event: Event;
@@ -39,9 +39,9 @@ export const useCartStore = create<CartState>((set, get) => ({
       } else {
         updated = [...state.items, { event, tier, quantity }];
       }
-      return { 
-        items: updated, 
-        totalPrice: updated.reduce((sum, item) => sum + (getItemPrice(item) * item.quantity), 0) 
+      return {
+        items: updated,
+        totalPrice: updated.reduce((sum, item) => sum + (getItemPrice(item) * item.quantity), 0)
       };
     });
   },
@@ -52,9 +52,9 @@ export const useCartStore = create<CartState>((set, get) => ({
         item => !(item.event.id === eventId && (tierId === undefined || item.tier?.id === tierId))
       );
       const getItemPrice = (item: CartItem) => (item.tier ? item.tier.price : item.event.price);
-      return { 
-        items: newItems, 
-        totalPrice: newItems.reduce((sum, item) => sum + (getItemPrice(item) * item.quantity), 0) 
+      return {
+        items: newItems,
+        totalPrice: newItems.reduce((sum, item) => sum + (getItemPrice(item) * item.quantity), 0)
       };
     });
   },
@@ -67,34 +67,35 @@ export const useCartStore = create<CartState>((set, get) => ({
 
     const currentUser = useAuthStore.getState().user;
     if (!currentUser || !currentUser.email) {
-      throw new Error("You must be authenticated with a valid email to buy passes.");
+      throw new Error("You must be authenticated to buy passes.");
+    }
+
+    const missingTier = items.find(item => !item.tier?.id);
+    if (missingTier) {
+      throw new Error(`Please select a tier for "${missingTier.event.eventName}" before checking out.`);
     }
 
     try {
-      const firstItem = items[0];
-      
-      const payload: any = {
-        eventTicket: {
-          id: firstItem.event.id
-        },
-        quantity: firstItem.quantity,
-        status: "CONFIRMED",
-        buyerEmail: currentUser.email, 
-        qrRedemptionToken: `TKT-${Math.random().toString(36).substring(2, 9).toUpperCase()}`
-      };
-
-      if (firstItem.tier?.id) {
-        payload.ticketTier = { id: firstItem.tier.id };
+      const responses = [];
+      for (const item of items) {
+        const payload = {
+          tierId: item.tier!.id,
+          quantity: item.quantity,
+        };
+        const response = await apiClient.post('/bookings', payload);
+        responses.push(response.data || response);
       }
 
-      const response = await apiClient.post('/bookings', payload);
-      const data = response.data || response;
-
       set({ items: [], totalPrice: 0 });
-      return data;
+      return responses;
     } catch (error: any) {
       console.error("Checkout transaction error:", error);
-      throw new Error(error.response?.data?.error || "Failed to process ticket order booking");
+      const apiError = error.response?.data;
+      const message =
+        apiError?.error ||
+        (apiError?.fields && Object.values(apiError.fields)[0]) ||
+        "Failed to process ticket order";
+      throw new Error(message as string);
     }
   }
 }));

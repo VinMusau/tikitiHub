@@ -28,6 +28,7 @@ import com.example.tikitihub.repository.BookingRepository;
 import com.example.tikitihub.repository.TicketRepository;
 import com.example.tikitihub.repository.TicketTierRepository;
 import com.example.tikitihub.repository.UserRepository;
+import com.example.tikitihub.dto.CreateBookingRequest;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;

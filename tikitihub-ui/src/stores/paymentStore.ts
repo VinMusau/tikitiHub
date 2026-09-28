@@ -23,8 +23,8 @@ export const usePaymentStore = create<PaymentState>((set) => ({
       const { data } = await apiClient.post('/payments/stk-push', {
         phone,
         amount: Math.round(amount).toString(),
-        ticketId: ticketId.toString(),
-        quantity: quantity.toString()
+        ticketId: ticketId,
+        quantity: quantity
       });
 
       if (data && data.ResponseCode === "0") {
