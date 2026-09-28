@@ -87,16 +87,18 @@ public class SecurityConfig {
                     .anyRequest().authenticated()
             )
             .exceptionHandling(ex -> ex
-                    .authenticationEntryPoint((req, res, authEx) -> {
-                        res.setStatus(401);
-                        res.setContentType("application/json");
-                        res.getWriter().write("{\"error\":\"Unauthorized — missing or invalid token\"}");
-                    })
-                    .accessDeniedHandler((req, res, accessEx) -> {
-                        res.setStatus(403);
-                        res.setContentType("application/json");
-                        res.getWriter().write("{\"error\":\"Forbidden — insufficient permissions\"}");
-                    })
+                .authenticationEntryPoint((req, res, authEx) -> {
+                    res.setStatus(401);
+                    res.setContentType("application/json;charset=UTF-8");
+                    res.setCharacterEncoding("UTF-8");
+                    res.getWriter().write("{\"error\":\"Unauthorized - missing or invalid token\"}");
+                })
+                .accessDeniedHandler((req, res, accessEx) -> {
+                    res.setStatus(403);
+                    res.setContentType("application/json;charset=UTF-8");
+                    res.setCharacterEncoding("UTF-8");
+                    res.getWriter().write("{\"error\":\"Forbidden - insufficient permissions\"}");
+                })
             )
             .authenticationProvider(authenticationProvider())
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

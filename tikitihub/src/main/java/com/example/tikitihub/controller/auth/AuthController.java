@@ -26,6 +26,7 @@ import com.example.tikitihub.model.UserRole;
 import com.example.tikitihub.repository.UserRepository;
 import com.example.tikitihub.service.EmailService;
 import com.example.tikitihub.service.JwtService;
+import com.example.tikitihub.exception.UnauthorizedException;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -102,7 +103,7 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<?> login(@RequestBody LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail())
-            .orElseThrow(() -> new RuntimeException("User record mapping trace failed"));
+            .orElseThrow(() -> new UnauthorizedException("Invalid email or password!"));
 
         if (!user.isEnabled()) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)

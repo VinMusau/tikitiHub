@@ -29,6 +29,10 @@ import com.example.tikitihub.repository.TicketRepository;
 import com.example.tikitihub.repository.TicketTierRepository;
 import com.example.tikitihub.repository.UserRepository;
 
+import com.example.tikitihub.exception.BusinessRuleException;
+import com.example.tikitihub.exception.ResourceNotFoundException;
+import com.example.tikitihub.exception.UnauthorizedException;
+
 @RestController
 @RequestMapping("/api/bookings")
 public class BookingController {
@@ -81,7 +85,7 @@ public class BookingController {
         Long tierId = booking.getTicketTier().getId();
 
         TicketTier tier = ticketTierRepository.findById(tierId)
-                .orElseThrow(() -> new RuntimeException("Ticket tier not found"));
+                    .orElseThrow(() -> new ResourceNotFoundException("Ticket tier " + tierId + " not found"));
 
         int tierUpdated = ticketTierRepository.decrementIfAvailable(tierId, qty);
 
@@ -89,9 +93,8 @@ public class BookingController {
             int remaining = ticketTierRepository.findById(tierId)
                     .map(TicketTier::getRemainingQuantity)
                     .orElse(0);
-            return ResponseEntity.badRequest().body(Map.of(
-                    "error", "Not enough " + tier.getName() + " tickets left! Only " + remaining + " remaining."
-            ));
+            throw new BusinessRuleException(
+                    "Not enough " + tier.getName() + " tickets left! Only " + remaining + " remaining.");
         }
 
         Ticket ticket = tier.getTicket();
@@ -102,7 +105,7 @@ public class BookingController {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentPrincipalEmail = authentication.getName();
         User dbUser = userRepository.findByEmail(currentPrincipalEmail)
-                .orElseThrow(() -> new RuntimeException("Buyer account profile not found"));
+                .orElseThrow(() -> new UnauthorizedException("Buyer account profile not found"));
 
         booking.setBuyer(dbUser);
         booking.setEventTicket(ticket);
@@ -168,7 +171,7 @@ public class BookingController {
     public ResponseEntity<List<Map<String, Object>>> getOrganizerSales(@AuthenticationPrincipal UserDetails userDetails) {
         String email = userDetails.getUsername();
         User organizer = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("Organizer not found"));
+                .orElseThrow(() -> new UnauthorizedException("Organizer not found"));
 
         List<Booking> allBookings = bookingRepository.findByEventTicketOrganizer(organizer);
 
