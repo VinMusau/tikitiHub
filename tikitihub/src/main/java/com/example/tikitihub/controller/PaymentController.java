@@ -25,6 +25,12 @@ import com.example.tikitihub.service.MpesaService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import com.example.tikitihub.dto.StkPushRequest;
+import com.example.tikitihub.exception.ResourceNotFoundException;
+import com.example.tikitihub.exception.UnauthorizedException;
+
+import jakarta.validation.Valid;
+
 @RestController
 @RequestMapping("/api/payments")
 public class PaymentController {
@@ -50,24 +56,23 @@ public class PaymentController {
     }
 
     @PostMapping("/stk-push")
-    public ResponseEntity<?> checkout(@RequestBody Map<String, String> request) {
-        String phone = request.get("phone");
-        String amount = request.get("amount");
-        String ticketId = request.get("ticketId");
-        String quantityStr = request.get("quantity");
-        int quantity = (quantityStr != null) ? Integer.parseInt(quantityStr) : 1;
+    public ResponseEntity<?> checkout(@Valid @RequestBody StkPushRequest request) {
+        String phone = normalizePhone(request.getPhone());
+        String amount = request.getAmount();
+        Long ticketId = request.getTicketId();
+        int quantity = request.getQuantity();
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentUserEmail = authentication.getName();
         User buyer = userRepository.findByEmail(currentUserEmail)
-            .orElseThrow(() -> new RuntimeException("Buyer account profile not found"));
+                .orElseThrow(() -> new UnauthorizedException("Buyer account profile not found"));
 
-        Ticket ticketListing = ticketRepository.findById(Long.parseLong(ticketId))
-            .orElseThrow(() -> new RuntimeException("Target event ticket package listing not found"));
+        Ticket ticketListing = ticketRepository.findById(ticketId)
+                .orElseThrow(() -> new ResourceNotFoundException("Ticket " + ticketId + " not found"));
 
         Map<String, String> mpesaResponse = mpesaService.initiateStkPush(phone, amount, "TicketRef-" + ticketId);
 
-        if (mpesaResponse != null && "0".equals(mpesaResponse.get("ResponseCode"))){
+        if (mpesaResponse != null && "0".equals(mpesaResponse.get("ResponseCode"))) {
             Transaction pendingTransaction = new Transaction();
             pendingTransaction.setCheckoutRequestID(mpesaResponse.get("CheckoutRequestID"));
             pendingTransaction.setCustomer(buyer);
@@ -79,9 +84,21 @@ public class PaymentController {
             pendingTransaction.setCreatedAt(java.time.LocalDateTime.now());
 
             transactionRepository.save(pendingTransaction);
-            System.out.println("Transaction trace registered as PENDING for ID: " + mpesaResponse.get("CheckoutRequestID"));
+            System.out.println("Transaction registered as PENDING: " + mpesaResponse.get("CheckoutRequestID"));
         }
+
         return ResponseEntity.ok(mpesaResponse);
+    }
+
+    private String normalizePhone(String phone) {
+        String digits = phone.replaceAll("[^0-9]", "");  // strip +, spaces
+        if (digits.startsWith("0")) {
+            return "254" + digits.substring(1);
+        }
+        if (digits.startsWith("254")) {
+            return digits;
+        }
+        return digits;
     }
 
     @PostMapping("/mpesa-callback")

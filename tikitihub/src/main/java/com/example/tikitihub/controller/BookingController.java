@@ -29,6 +29,11 @@ import com.example.tikitihub.repository.TicketRepository;
 import com.example.tikitihub.repository.TicketTierRepository;
 import com.example.tikitihub.repository.UserRepository;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+
 import com.example.tikitihub.exception.BusinessRuleException;
 import com.example.tikitihub.exception.ResourceNotFoundException;
 import com.example.tikitihub.exception.UnauthorizedException;
@@ -55,37 +60,40 @@ public class BookingController {
     }
 
     public static class GateScanRequest {
+
+        @NotBlank(message = "qrRedemptionToken is required")
         private String qrRedemptionToken;
+
+        @NotNull(message = "eventId is required")
+        @Positive(message = "eventId must be a positive number")
         private Long eventId;
 
-        public String getQrRedemptionToken() { return qrRedemptionToken; }
-        public void setQrRedemptionToken(String qrRedemptionToken) { this.qrRedemptionToken = qrRedemptionToken; }
+        public String getQrRedemptionToken() {
+            return qrRedemptionToken;
+        }
 
-        public Long getEventId() { return eventId; }
-        public void setEventId(Long eventId) { this.eventId = eventId; }
+        public void setQrRedemptionToken(String qrRedemptionToken) {
+            this.qrRedemptionToken = qrRedemptionToken;
+        }
+
+        public Long getEventId() {
+            return eventId;
+        }
+
+        public void setEventId(Long eventId) {
+            this.eventId = eventId;
+        }
     }
 
     // PURCHASE a ticket
     @PostMapping
     @Transactional
-    public ResponseEntity<?> purchaseTicket(@RequestBody Booking booking) {
-
-        if (booking.getTicketTier() == null || booking.getTicketTier().getId() == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Ticket tier ID is required"));
-        }
-
-        Integer qty = booking.getQuantity();
-        if (qty == null || qty <= 0) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Quantity must be at least 1"));
-        }
-        if (qty > 100) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Cannot purchase more than 100 tickets per order"));
-        }
-
-        Long tierId = booking.getTicketTier().getId();
+    public ResponseEntity<?> purchaseTicket(@Valid @RequestBody CreateBookingRequest request) {
+        Long tierId = request.getTierId();
+        int qty = request.getQuantity();
 
         TicketTier tier = ticketTierRepository.findById(tierId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Ticket tier " + tierId + " not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("Ticket tier " + tierId + " not found"));
 
         int tierUpdated = ticketTierRepository.decrementIfAvailable(tierId, qty);
 
@@ -107,18 +115,18 @@ public class BookingController {
         User dbUser = userRepository.findByEmail(currentPrincipalEmail)
                 .orElseThrow(() -> new UnauthorizedException("Buyer account profile not found"));
 
+        Booking booking = new Booking();
         booking.setBuyer(dbUser);
         booking.setEventTicket(ticket);
         booking.setTicketTier(tier);
+        booking.setQuantity(qty);
 
         Booking savedBooking = bookingRepository.save(booking);
-
-        // Build DTO while session is still open — this is what fixes the LazyInitializationException
         return new ResponseEntity<>(BookingResponse.from(savedBooking), HttpStatus.CREATED);
     }
 
     @PostMapping("/redeem")
-    public ResponseEntity<?> redeemTicket(@RequestBody GateScanRequest request) {
+    public ResponseEntity<?> redeemTicket(@Valid @RequestBody GateScanRequest request) {
         if (request.getQrRedemptionToken() == null || request.getEventId() == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "Both qrRedemptionToken and eventId are required"));
         }

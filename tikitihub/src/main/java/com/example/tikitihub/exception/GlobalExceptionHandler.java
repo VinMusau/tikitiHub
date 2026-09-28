@@ -5,9 +5,11 @@ import java.util.Map;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.validation.FieldError;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -29,6 +31,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<Map<String, Object>> handleAuthException(AuthenticationException ex) {
         return build(HttpStatus.UNAUTHORIZED, "Invalid email or password", "AuthenticationException");
+    }
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {
+        Map<String, String> fieldErrors = new java.util.HashMap<>();
+        for (FieldError fe : ex.getBindingResult().getFieldErrors()) {
+            fieldErrors.put(fe.getField(), fe.getDefaultMessage());
+        }
+        return ResponseEntity.badRequest().body(Map.of(
+                "timestamp", LocalDateTime.now().toString(),
+                "status", 400,
+                "error", "Validation failed",
+                "type", "MethodArgumentNotValidException",
+                "fields", fieldErrors
+        ));
     }
 
     /**
