@@ -2,6 +2,7 @@ package com.example.tikitihub.service;
 
 import com.example.tikitihub.config.JwtProperties;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
@@ -57,8 +58,13 @@ public class JwtService {
     }
 
     public boolean isTokenValid(String token, String username) {
-        final String extractedUsername = extractUsername(token);
-        return (extractedUsername.equals(username)) && !isTokenExpired(token);
+        try {
+            final String extractedUsername = extractUsername(token);
+            return extractedUsername.equals(username) && !isTokenExpired(token);
+        } catch (JwtException | IllegalArgumentException e) {
+            // Expired, tampered, malformed, or empty — not valid.
+            return false;
+        }
     }
 
     private boolean isTokenExpired(String token) {
