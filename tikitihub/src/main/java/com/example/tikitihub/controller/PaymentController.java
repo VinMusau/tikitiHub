@@ -17,10 +17,14 @@ import com.example.tikitihub.model.Booking;
 import com.example.tikitihub.model.Ticket;
 import com.example.tikitihub.model.Transaction;
 import com.example.tikitihub.model.User;
+import com.example.tikitihub.model.TicketTier;
+
 import com.example.tikitihub.repository.BookingRepository;
 import com.example.tikitihub.repository.TicketRepository;
+import com.example.tikitihub.repository.TicketTierRepository;
 import com.example.tikitihub.repository.TransactionRepository;
 import com.example.tikitihub.repository.UserRepository;
+
 import com.example.tikitihub.service.MpesaService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,6 +32,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.example.tikitihub.dto.StkPushRequest;
 import com.example.tikitihub.exception.ResourceNotFoundException;
 import com.example.tikitihub.exception.UnauthorizedException;
+import com.example.tikitihub.exception.BusinessRuleException;
+import org.springframework.beans.factory.annotation.Value;
 
 import jakarta.validation.Valid;
 
@@ -40,6 +46,7 @@ public class PaymentController {
     private final TicketRepository ticketRepository;
     private final BookingRepository bookingRepository;
     private final UserRepository userRepository;
+    private final TicketTierRepository ticketTierRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public PaymentController(
@@ -47,19 +54,23 @@ public class PaymentController {
             TransactionRepository transactionRepository,
             TicketRepository ticketRepository,
             BookingRepository bookingRepository,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            TicketTierRepository ticketTierRepository) {
         this.mpesaService = mpesaService;
         this.transactionRepository = transactionRepository;
         this.ticketRepository = ticketRepository;
         this.bookingRepository = bookingRepository;
         this.userRepository = userRepository;
+        this.ticketTierRepository = ticketTierRepository;
     }
+
+    @Value("${app.platform.fee-percent:5}")
+    private double platformFeePercent;
 
     @PostMapping("/stk-push")
     public ResponseEntity<?> checkout(@Valid @RequestBody StkPushRequest request) {
         String phone = normalizePhone(request.getPhone());
-        String amount = request.getAmount();
-        Long ticketId = request.getTicketId();
+        Long tierId = request.getTierId();
         int quantity = request.getQuantity();
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -67,16 +78,32 @@ public class PaymentController {
         User buyer = userRepository.findByEmail(currentUserEmail)
                 .orElseThrow(() -> new UnauthorizedException("Buyer account profile not found"));
 
-        Ticket ticketListing = ticketRepository.findById(ticketId)
-                .orElseThrow(() -> new ResourceNotFoundException("Ticket " + ticketId + " not found"));
+        TicketTier tier = ticketTierRepository.findById(tierId)
+                .orElseThrow(() -> new ResourceNotFoundException("Ticket tier " + tierId + " not found"));
 
-        Map<String, String> mpesaResponse = mpesaService.initiateStkPush(phone, amount, "TicketRef-" + ticketId);
+        Ticket eventTicket = tier.getTicket();
+        if (eventTicket == null) {
+            throw new BusinessRuleException("Tier " + tierId + " is not linked to an event");
+        }
+
+        // Server-side price calculation — client no longer dictates the amount
+        double tierPrice = tier.getPrice() != null ? tier.getPrice() : 0.0;
+        double subtotal = tierPrice * quantity;
+        long amountKes = Math.round(subtotal * (1 + platformFeePercent / 100.0));
+
+        if (amountKes < 1) {
+            throw new BusinessRuleException("Computed amount is too low to process");
+        }
+
+        String amount = String.valueOf(amountKes);
+        Map<String, String> mpesaResponse = mpesaService.initiateStkPush(phone, amount, "TierRef-" + tierId);
 
         if (mpesaResponse != null && "0".equals(mpesaResponse.get("ResponseCode"))) {
             Transaction pendingTransaction = new Transaction();
             pendingTransaction.setCheckoutRequestID(mpesaResponse.get("CheckoutRequestID"));
             pendingTransaction.setCustomer(buyer);
-            pendingTransaction.setTicketListing(ticketListing);
+            pendingTransaction.setTicketListing(eventTicket);
+            pendingTransaction.setTierListing(tier);
             pendingTransaction.setQuantity(quantity);
             pendingTransaction.setTotalAmount(new BigDecimal(amount));
             pendingTransaction.setPhoneNumber(phone);
@@ -144,23 +171,24 @@ public class PaymentController {
             }
 
             Ticket eventListing = transaction.getTicketListing();
+            TicketTier tierListing = transaction.getTierListing();
             int qty = transaction.getQuantity();
 
-            int updated = ticketRepository.decrementIfAvailable(eventListing.getId(), qty);
-
-            if (updated == 0) {
-                // Oversold: customer paid but stock ran out. Requires manual refund.
-                transaction.setStatus("OVERSOLD");
-                transaction.setMpesaReceiptNumber(mpesaReceipt);
-                transactionRepository.save(transaction);
-
-                System.err.println("CRITICAL: Oversold for transaction " + checkoutId
-                        + " — customer " + transaction.getCustomer().getEmail()
-                        + " paid receipt " + mpesaReceipt + ". Manual refund required.");
-
-                // Return 200 so Safaricom stops retrying — refund is handled out-of-band.
-                return ResponseEntity.ok(Map.of("ResultCode", 0, "ResultDesc", "Accept Success"));
+            if (tierListing != null) {
+                int tierUpdated = ticketTierRepository.decrementIfAvailable(tierListing.getId(), qty);
+                if (tierUpdated == 0) {
+                    transaction.setStatus("OVERSOLD");
+                    transaction.setMpesaReceiptNumber(mpesaReceipt);
+                    transactionRepository.save(transaction);
+                    System.err.println("CRITICAL: Oversold tier " + tierListing.getId()
+                            + " for transaction " + checkoutId
+                            + " — customer " + transaction.getCustomer().getEmail()
+                            + " paid receipt " + mpesaReceipt + ". Manual refund required.");
+                    return ResponseEntity.ok(Map.of("ResultCode", 0, "ResultDesc", "Accept Success"));
+                }
             }
+
+            ticketRepository.decrementIfAvailable(eventListing.getId(), qty);
 
             transaction.setStatus("COMPLETED");
             transaction.setMpesaReceiptNumber(mpesaReceipt);
@@ -169,6 +197,7 @@ public class PaymentController {
             Booking booking = new Booking();
             booking.setBuyer(transaction.getCustomer());
             booking.setEventTicket(eventListing);
+            booking.setTicketTier(tierListing);   
             booking.setQuantity(qty);
             bookingRepository.save(booking);
 

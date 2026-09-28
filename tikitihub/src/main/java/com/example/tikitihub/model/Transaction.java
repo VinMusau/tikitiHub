@@ -19,17 +19,21 @@ public class Transaction {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ticket_id", nullable = false)
-    private Ticket ticketListing; 
+    private Ticket ticketListing;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "tier_id")
+    private TicketTier tierListing;
 
     private Integer quantity;
     private BigDecimal totalAmount;
-    
-    private String mpesaReceiptNumber; 
-    private String checkoutRequestID;   
+
+    private String mpesaReceiptNumber;
+    private String checkoutRequestID;
     private String phoneNumber;
 
     @Column(nullable = false)
-    private String status = "PENDING"; 
+    private String status = "PENDING";
 
     private LocalDateTime createdAt = LocalDateTime.now();
 }
