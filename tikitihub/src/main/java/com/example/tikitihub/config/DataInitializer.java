@@ -1,5 +1,8 @@
 package com.example.tikitihub.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.example.tikitihub.model.User;
 import com.example.tikitihub.repository.UserRepository;
 import org.springframework.boot.CommandLineRunner;
@@ -11,6 +14,7 @@ import java.util.List;
 @Component
 public class DataInitializer implements CommandLineRunner {
 
+    private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
     private final UserRepository userRepository;
 
     public DataInitializer(UserRepository userRepository) {
@@ -27,7 +31,7 @@ public class DataInitializer implements CommandLineRunner {
                     user.setEnabled(true);
                     user.setVerificationToken(null); 
                     userRepository.save(user);
-                    System.out.println(" [Dev Setup] Force-verified test account: " + email);
+                    log.info(" [Dev Setup] Force-verified test account: {}", email);
                 }
             });
         }

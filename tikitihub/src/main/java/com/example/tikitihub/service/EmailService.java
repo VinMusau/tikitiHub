@@ -1,5 +1,8 @@
 package com.example.tikitihub.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -10,6 +13,7 @@ import jakarta.mail.internet.MimeMessage;
 @Service
 public class EmailService {
 
+    private static final Logger log = LoggerFactory.getLogger(EmailService.class);
     private final JavaMailSender mailSender;
 
     public EmailService(JavaMailSender mailSender) {
@@ -40,7 +44,7 @@ public class EmailService {
             helper.setText(htmlContent, true);
             mailSender.send(message);
         } catch (Exception e) {
-            System.err.println("Critical Email execution pipeline failure: " + e.getMessage());
+            log.error("Critical Email execution pipeline failure: {}", e.getMessage(), e);
         }
     }
 }

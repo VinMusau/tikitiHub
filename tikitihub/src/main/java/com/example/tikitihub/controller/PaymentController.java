@@ -2,6 +2,8 @@ package com.example.tikitihub.controller;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -40,6 +42,8 @@ import jakarta.validation.Valid;
 @RestController
 @RequestMapping("/api/payments")
 public class PaymentController {
+
+    private static final Logger log = LoggerFactory.getLogger(PaymentController.class);
 
     private final MpesaService mpesaService;
     private final TransactionRepository transactionRepository;
@@ -111,7 +115,7 @@ public class PaymentController {
             pendingTransaction.setCreatedAt(java.time.LocalDateTime.now());
 
             transactionRepository.save(pendingTransaction);
-            System.out.println("Transaction registered as PENDING: " + mpesaResponse.get("CheckoutRequestID"));
+            log.info("Transaction registered as PENDING: {}", mpesaResponse.get("CheckoutRequestID"));
         }
 
         return ResponseEntity.ok(mpesaResponse);
@@ -142,14 +146,13 @@ public class PaymentController {
             int resultCode = stkCallback.path("ResultCode").asInt();
 
             Transaction transaction = transactionRepository.findByCheckoutRequestID(cid)
-                    .orElseThrow(() -> new RuntimeException("Transaction not found for CheckoutRequestID: " + cid));
+                    .orElseThrow(() -> new ResourceNotFoundException("Transaction not found for CheckoutRequestID: " + cid));
 
             // Safaricom retries callbacks. If we've already finalized this transaction, do nothing.
             if ("COMPLETED".equals(transaction.getStatus())
                     || "FAILED".equals(transaction.getStatus())
                     || "OVERSOLD".equals(transaction.getStatus())) {
-                System.out.println("Duplicate callback ignored for " + checkoutId
-                        + " (already " + transaction.getStatus() + ")");
+                log.warn("Duplicate callback ignored for {} (already {})", checkoutId, transaction.getStatus());
                 return ResponseEntity.ok(Map.of("ResultCode", 0, "ResultDesc", "Already processed"));
             }
 
@@ -157,7 +160,7 @@ public class PaymentController {
             if (resultCode != 0) {
                 transaction.setStatus("FAILED");
                 transactionRepository.save(transaction);
-                System.out.println("Payment failed/aborted for " + checkoutId);
+                log.info("Payment failed/aborted for {}", checkoutId);
                 return ResponseEntity.ok(Map.of("ResultCode", 0, "ResultDesc", "Accept Success"));
             }
 
@@ -180,10 +183,8 @@ public class PaymentController {
                     transaction.setStatus("OVERSOLD");
                     transaction.setMpesaReceiptNumber(mpesaReceipt);
                     transactionRepository.save(transaction);
-                    System.err.println("CRITICAL: Oversold tier " + tierListing.getId()
-                            + " for transaction " + checkoutId
-                            + " — customer " + transaction.getCustomer().getEmail()
-                            + " paid receipt " + mpesaReceipt + ". Manual refund required.");
+                    log.error("CRITICAL: Oversold tier {} for transaction {} — customer {} paid receipt {} — manual refund required",
+                            tierListing.getId(), checkoutId, transaction.getCustomer().getEmail(), mpesaReceipt);
                     return ResponseEntity.ok(Map.of("ResultCode", 0, "ResultDesc", "Accept Success"));
                 }
             }
@@ -201,12 +202,11 @@ public class PaymentController {
             booking.setQuantity(qty);
             bookingRepository.save(booking);
 
-            System.out.println("TikitiHub success: receipt " + mpesaReceipt + " for booking " + booking.getId());
+            log.info("TikitiHub success: receipt {} for booking {}", mpesaReceipt, booking.getId());
 
         } catch (Exception e) {
             // Full trace so the failure is visible in the console
-            System.err.println("M-Pesa callback processing failed for CheckoutRequestID=" + checkoutId);
-            e.printStackTrace();
+            log.error("M-Pesa callback processing failed for CheckoutRequestID={}", checkoutId, e);
 
             // Return 500 so Safaricom retries. @Transactional rolls back — the transaction
             // stays PENDING and will be processed on the retry.
