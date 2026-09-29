@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.example.tikitihub.dto.BookingResponse;
 import com.example.tikitihub.model.Booking;
@@ -29,6 +31,7 @@ import com.example.tikitihub.repository.TicketRepository;
 import com.example.tikitihub.repository.TicketTierRepository;
 import com.example.tikitihub.repository.UserRepository;
 import com.example.tikitihub.dto.CreateBookingRequest;
+import com.example.tikitihub.service.EmailService;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -47,17 +50,20 @@ public class BookingController {
     private final TicketRepository ticketRepository;
     private final UserRepository userRepository;
     private final TicketTierRepository ticketTierRepository;
+    private final EmailService emailService;
 
     public BookingController(
             BookingRepository bookingRepository,
             TicketRepository ticketRepository,
             UserRepository userRepository,
-            TicketTierRepository ticketTierRepository
+            TicketTierRepository ticketTierRepository,
+            EmailService emailService
     ) {
         this.bookingRepository = bookingRepository;
         this.ticketRepository = ticketRepository;
         this.userRepository = userRepository;
         this.ticketTierRepository = ticketTierRepository;
+        this.emailService = emailService;
     }
 
     public static class GateScanRequest {
@@ -123,6 +129,8 @@ public class BookingController {
         booking.setQuantity(qty);
 
         Booking savedBooking = bookingRepository.save(booking);
+
+        scheduleTicketEmail(booking, ticket, tier, dbUser);
         return new ResponseEntity<>(BookingResponse.from(savedBooking), HttpStatus.CREATED);
     }
 
@@ -243,5 +251,19 @@ public class BookingController {
         }
 
         return ResponseEntity.ok(new ArrayList<>(eventMap.values()));
+    }
+
+    private void scheduleTicketEmail(Booking booking, Ticket ticket, TicketTier tier, User buyer) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            // No transaction — send immediately (shouldn't happen in this path)
+            emailService.sendTicketConfirmation(booking, ticket, tier, buyer);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                emailService.sendTicketConfirmation(booking, ticket, tier, buyer);
+            }
+        });
     }
 }

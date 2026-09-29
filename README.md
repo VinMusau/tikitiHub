@@ -136,7 +136,7 @@ tikitiHub/
 ### 1. Clone and initialise
 
 ```bash
-git clone https://github.com/MusauVin/tikitiHub.git
+git clone https://github.com/VinMusau/tikitiHub.git
 cd tikitiHub
 ```
 

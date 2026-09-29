@@ -28,6 +28,7 @@ import com.example.tikitihub.repository.TransactionRepository;
 import com.example.tikitihub.repository.UserRepository;
 
 import com.example.tikitihub.service.MpesaService;
+import com.example.tikitihub.service.EmailService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -35,6 +36,8 @@ import com.example.tikitihub.dto.StkPushRequest;
 import com.example.tikitihub.exception.ResourceNotFoundException;
 import com.example.tikitihub.exception.UnauthorizedException;
 import com.example.tikitihub.exception.BusinessRuleException;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.beans.factory.annotation.Value;
 
 import jakarta.validation.Valid;
@@ -52,6 +55,7 @@ public class PaymentController {
     private final UserRepository userRepository;
     private final TicketTierRepository ticketTierRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final EmailService emailService;
 
     public PaymentController(
             MpesaService mpesaService,
@@ -59,13 +63,15 @@ public class PaymentController {
             TicketRepository ticketRepository,
             BookingRepository bookingRepository,
             UserRepository userRepository,
-            TicketTierRepository ticketTierRepository) {
+            TicketTierRepository ticketTierRepository,
+            EmailService emailService) {
         this.mpesaService = mpesaService;
         this.transactionRepository = transactionRepository;
         this.ticketRepository = ticketRepository;
         this.bookingRepository = bookingRepository;
         this.userRepository = userRepository;
         this.ticketTierRepository = ticketTierRepository;
+        this.emailService = emailService;
     }
 
     @Value("${app.platform.fee-percent:5}")
@@ -202,6 +208,8 @@ public class PaymentController {
             booking.setQuantity(qty);
             bookingRepository.save(booking);
 
+            scheduleTicketEmail(booking, eventListing, tierListing, transaction.getCustomer());
+
             log.info("TikitiHub success: receipt {} for booking {}", mpesaReceipt, booking.getId());
 
         } catch (Exception e) {
@@ -215,5 +223,18 @@ public class PaymentController {
         }
 
         return ResponseEntity.ok(Map.of("ResultCode", 0, "ResultDesc", "Accept Success"));
+    }
+    private void scheduleTicketEmail(Booking booking, Ticket ticket, TicketTier tier, User buyer) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            // No transaction — send immediately (shouldn't happen in this path)
+            emailService.sendTicketConfirmation(booking, ticket, tier, buyer);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                emailService.sendTicketConfirmation(booking, ticket, tier, buyer);
+            }
+        });
     }
 }
